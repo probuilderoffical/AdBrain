@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "AdBrain",
+    "slug": "adbrain",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "adbrain",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ],
+    "android": {
+      "package": "com.probuilderoffical.adbrain"
+    },
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
