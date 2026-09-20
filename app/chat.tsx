@@ -7,6 +7,7 @@ import { analyzeMessage } from '@/brain/analyzeMessage';
 import { addMessage, createChat, getLatestChat, getMessages } from '@/db/chatRepo';
 import { recordFeedback } from '@/db/learningRepo';
 import { usePreferences } from '@/store/preferences';
+import { useAdBrainModel } from '@/model/useAdBrainModel';
 
 type ChatMessage = {
   id?: number;
@@ -18,7 +19,10 @@ export default function ChatScreen() {
   const { colors } = useTheme();
   const chatHistory = usePreferences((state) => state.chatHistory);
   const improve = usePreferences((state) => state.improve);
+  const model = useAdBrainModel();
   const [input, setInput] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [streamingText, setStreamingText] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const chatIdRef = useRef<number | null>(null);
   const quick = useMemo(() => ['Analyze product', 'Find ad angles', 'Write hooks'], []);
@@ -52,9 +56,26 @@ export default function ChatScreen() {
     setMessages((current) => [...current, { role: 'user', text: value }]);
     await persist('user', value);
 
-    const reply = analyzeMessage(value);
+    setIsGenerating(true);
+    setStreamingText('');
+
+    let reply: string | null = null;
+    try {
+      reply = await model.ask(value, (token) => {
+        setStreamingText((current) => current + token);
+      });
+    } catch {
+      reply = null;
+    }
+
+    if (!reply) {
+      reply = analyzeMessage(value);
+    }
+
     const assistantId = await persist('assistant', reply);
-    setMessages((current) => [...current, { id: assistantId, role: 'assistant', text: reply }]);
+    setMessages((current) => [...current, { id: assistantId, role: 'assistant', text: reply as string }]);
+    setStreamingText('');
+    setIsGenerating(false);
   };
 
   async function feedback(signal: 'like' | 'dislike' | 'save' | 'copy', messageId?: number) {
@@ -78,6 +99,13 @@ export default function ChatScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 150 }}>
+        {!model.isReady ? (
+          <View style={{ marginBottom: 12, padding: 10, borderRadius: 12, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }}>
+            <Text style={{ color: colors.muted, fontSize: 12 }}>
+              {model.error ? 'Local AI unavailable — fallback mode active.' : 'Preparing AdBrain One · ' + Math.round(model.downloadProgress) + '%'}
+            </Text>
+          </View>
+        ) : null}
         {messages.length === 0 ? (
           <View style={{ marginTop: 76 }}>
             <Text style={{ fontSize: 30, fontWeight: '700', color: colors.text, lineHeight: 38 }}>
@@ -126,6 +154,11 @@ export default function ChatScreen() {
             </View>
           ))
         )}
+        {isGenerating && streamingText ? (
+          <View style={{ backgroundColor: colors.card, borderRadius: 18, padding: 14, borderWidth: 1, borderColor: colors.border, marginTop: 4 }}>
+            <Text style={{ color: colors.text, fontSize: 16, lineHeight: 24 }}>{streamingText}</Text>
+          </View>
+        ) : null}
       </ScrollView>
 
       <View style={{ position: 'absolute', left: 16, right: 16, bottom: 20, flexDirection: 'row', alignItems: 'flex-end', gap: 8, backgroundColor: colors.card, borderRadius: 24, borderWidth: 1, borderColor: colors.border, padding: 10 }}>
@@ -140,7 +173,7 @@ export default function ChatScreen() {
           multiline
           style={{ flex: 1, maxHeight: 120, color: colors.text, fontSize: 16, paddingVertical: 9 }}
         />
-        <Pressable onPress={() => void send()} style={{ backgroundColor: colors.primary, width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }}>
+        <Pressable disabled={isGenerating} onPress={() => void send()} style={{ opacity: isGenerating ? 0.5 : 1, backgroundColor: colors.primary, width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }}>
           <Ionicons name="arrow-up" size={20} color={colors.background} />
         </Pressable>
       </View>
