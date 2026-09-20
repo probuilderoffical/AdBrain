@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@expo/vector-icons": "*",
-    "@react-native-async-storage/async-storage": "*",
+    "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "^57.0.0",
     "expo-document-picker": "*",
     "expo-file-system": "*",
@@ -20,13 +20,13 @@
     "expo-sqlite": "*",
     "expo-status-bar": "*",
     "react": "19.2.3",
-    "react-native": "0.86.0",
-    "react-native-safe-area-context": "*",
-    "react-native-screens": "*",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0",
     "zustand": "^5.0.8"
   },
   "devDependencies": {
-    "@types/react": "^19.2.0",
-    "typescript": "^5.9.2"
+    "@types/react": "~19.2.4",
+    "typescript": "~6.0.3"
   }
 }
