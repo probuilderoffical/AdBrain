@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/android-debug.yml"
+      - "package.json"
 
 jobs:
   build:
