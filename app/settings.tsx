@@ -83,20 +83,26 @@ export default function SettingsScreen() {
       </Section>
 
       <Section title="Data & Privacy">
-        <Text style={{ color: colors.text, lineHeight: 27 }}>Processed on device{'
-'}Export data{'
-'}Clear local data{'
-'}Model storage</Text>
+        <View style={{ gap: 8 }}>
+          <Text style={{ color: colors.text }}>Processed on device</Text>
+          <Text style={{ color: colors.text }}>Export data</Text>
+          <Text style={{ color: colors.text }}>Clear local data</Text>
+          <Text style={{ color: colors.text }}>Model storage</Text>
+        </View>
       </Section>
 
       <Section title="Security">
-        <Text style={{ color: colors.text, lineHeight: 27 }}>App lock{'
-'}PIN / Biometrics</Text>
+        <View style={{ gap: 8 }}>
+          <Text style={{ color: colors.text }}>App lock</Text>
+          <Text style={{ color: colors.text }}>PIN / Biometrics</Text>
+        </View>
       </Section>
 
       <Section title="About">
-        <Text style={{ color: colors.muted, lineHeight: 22 }}>AdBrain v0.1{'
-'}AdBrain One · AB-1</Text>
+        <View style={{ gap: 6 }}>
+          <Text style={{ color: colors.muted }}>AdBrain v0.1</Text>
+          <Text style={{ color: colors.muted }}>AdBrain One · AB-1</Text>
+        </View>
       </Section>
     </ScrollView>
   );
