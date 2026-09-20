@@ -1,7 +1,7 @@
 import { Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { usePreferences } from '@/store/preferences';
+import { ThemeMode, usePreferences } from '@/store/preferences';
 import { useTheme } from '@/theme/ThemeProvider';
 
 function ToggleRow({ label, note, value, onValueChange }: { label: string; note: string; value: boolean; onValueChange: (value: boolean) => void }) {
@@ -21,7 +21,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   const { colors } = useTheme();
   return (
     <View style={{ marginTop: 28 }}>
-      <Text style={{ color: colors.text, fontSize: 18, fontWeight: '700', marginBottom: 6 }}>{title}</Text>
+      <Text style={{ color: colors.text, fontSize: 18, fontWeight: '700', marginBottom: 8 }}>{title}</Text>
       {children}
     </View>
   );
@@ -32,7 +32,11 @@ export default function SettingsScreen() {
   const memory = usePreferences((state) => state.memory);
   const improve = usePreferences((state) => state.improve);
   const chatHistory = usePreferences((state) => state.chatHistory);
-  const set = usePreferences((state) => state.set);
+  const themeMode = usePreferences((state) => state.themeMode);
+  const setBool = usePreferences((state) => state.setBool);
+  const setThemeMode = usePreferences((state) => state.setThemeMode);
+
+  const themes: ThemeMode[] = ['light', 'dark', 'system'];
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: colors.background }} contentContainerStyle={{ padding: 20, paddingTop: 54, paddingBottom: 60 }}>
@@ -48,14 +52,34 @@ export default function SettingsScreen() {
       </Section>
 
       <Section title="Personalization">
-        <ToggleRow label="Memory" value={memory} onValueChange={(value) => set('memory', value)} note="Preferences, brands aur project context yaad rakho." />
-        <ToggleRow label="Improve AdBrain" value={improve} onValueChange={(value) => set('improve', value)} note="Likes, dislikes, saves aur edits se is device par ranking improve karo." />
-        <ToggleRow label="Chat History" value={chatHistory} onValueChange={(value) => set('chatHistory', value)} note="Chats ko local device par save karo." />
+        <ToggleRow label="Memory" value={memory} onValueChange={(value) => setBool('memory', value)} note="Preferences, brands aur project context yaad rakho." />
+        <ToggleRow label="Improve AdBrain" value={improve} onValueChange={(value) => setBool('improve', value)} note="Likes, dislikes, saves aur edits se is device par ranking improve karo." />
+        <ToggleRow label="Chat History" value={chatHistory} onValueChange={(value) => setBool('chatHistory', value)} note="Chats ko local device par save karo." />
       </Section>
 
       <Section title="Appearance">
-        <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>Theme</Text>
-        <Text style={{ color: colors.muted, marginTop: 5 }}>Light (default) · Dark aur System planned</Text>
+        <View style={{ flexDirection: 'row', gap: 9, flexWrap: 'wrap' }}>
+          {themes.map((mode) => {
+            const selected = themeMode === mode;
+            return (
+              <Pressable
+                key={mode}
+                onPress={() => setThemeMode(mode)}
+                style={{
+                  paddingVertical: 10,
+                  paddingHorizontal: 14,
+                  borderRadius: 999,
+                  backgroundColor: selected ? colors.primary : colors.card,
+                  borderWidth: 1,
+                  borderColor: selected ? colors.primary : colors.border,
+                }}
+              >
+                <Text style={{ color: selected ? colors.background : colors.text, textTransform: 'capitalize', fontWeight: '600' }}>{mode}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <Text style={{ color: colors.muted, marginTop: 10 }}>Default Light hai.</Text>
       </Section>
 
       <Section title="Data & Privacy">
