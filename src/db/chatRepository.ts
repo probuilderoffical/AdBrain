@@ -1,0 +1,49 @@
+import { getDatabase } from './database';
+
+export type SavedMessage = {
+  id: number;
+  role: 'user' | 'assistant';
+  content: string;
+  created_at: number;
+};
+
+export async function createChat(title = 'New chat') {
+  const db = await getDatabase();
+  const now = Date.now();
+  const result = await db.runAsync(
+    'INSERT INTO chats (title, created_at, updated_at) VALUES (?, ?, ?)',
+    title,
+    now,
+    now
+  );
+  return Number(result.lastInsertRowId);
+}
+
+export async function addMessage(chatId: number, role: 'user' | 'assistant', content: string) {
+  const db = await getDatabase();
+  const now = Date.now();
+  const result = await db.runAsync(
+    'INSERT INTO messages (chat_id, role, content, created_at) VALUES (?, ?, ?, ?)',
+    chatId,
+    role,
+    content,
+    now
+  );
+  await db.runAsync('UPDATE chats SET updated_at = ? WHERE id = ?', now, chatId);
+  return Number(result.lastInsertRowId);
+}
+
+export async function listMessages(chatId: number) {
+  const db = await getDatabase();
+  return db.getAllAsync<SavedMessage>(
+    'SELECT id, role, content, created_at FROM messages WHERE chat_id = ? ORDER BY id ASC',
+    chatId
+  );
+}
+
+export async function listChats() {
+  const db = await getDatabase();
+  return db.getAllAsync<{ id: number; title: string; updated_at: number }>(
+    'SELECT id, title, updated_at FROM chats ORDER BY updated_at DESC'
+  );
+}
