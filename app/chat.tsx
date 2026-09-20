@@ -8,6 +8,8 @@ import { addMessage, createChat, getLatestChat, getMessages } from '@/db/chatRep
 import { recordFeedback } from '@/db/learningRepo';
 import { usePreferences } from '@/store/preferences';
 import { useAdBrainModel } from '@/model/useAdBrainModel';
+import { addMemory, extractSimpleMemories, getTopMemories } from '@/db/memoryRepo';
+import { buildAdBrainPrompt } from '@/brain/buildPrompt';
 
 type ChatMessage = {
   id?: number;
@@ -19,6 +21,7 @@ export default function ChatScreen() {
   const { colors } = useTheme();
   const chatHistory = usePreferences((state) => state.chatHistory);
   const improve = usePreferences((state) => state.improve);
+  const memoryEnabled = usePreferences((state) => state.memory);
   const model = useAdBrainModel();
   const [input, setInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -59,9 +62,19 @@ export default function ChatScreen() {
     setIsGenerating(true);
     setStreamingText('');
 
+    if (memoryEnabled) {
+      const candidates = extractSimpleMemories(value);
+      for (const item of candidates) {
+        await addMemory(item.kind, item.content);
+      }
+    }
+
+    const memoryContext = memoryEnabled ? await getTopMemories() : [];
+    const prompt = buildAdBrainPrompt(value, memoryContext);
+
     let reply: string | null = null;
     try {
-      reply = await model.ask(value, (token) => {
+      reply = await model.ask(prompt, (token) => {
         setStreamingText((current) => current + token);
       });
     } catch {
