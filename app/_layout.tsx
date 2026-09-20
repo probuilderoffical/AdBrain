@@ -3,6 +3,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ThemeProvider, useTheme } from '@/theme/ThemeProvider';
 import { usePreferences } from '@/store/preferences';
+import { initializeDatabase } from '@/db/database';
 
 function AppShell() {
   const { isDark } = useTheme();
@@ -19,6 +20,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     void hydrate();
+    void initializeDatabase();
   }, [hydrate]);
 
   return (
