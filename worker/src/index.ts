@@ -77,7 +77,7 @@ export default {
 
     try {
       const userId = await getUserId(request, env);
-      const body = await request.json<ChatRequest>();
+      const body = (await request.json()) as ChatRequest;
       const message = body.message?.trim();
 
       if (!message) return makeJson({ error: "Message is required" }, 400, origin);
