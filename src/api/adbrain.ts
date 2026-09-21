@@ -1,6 +1,6 @@
 import { authClient } from "@/auth/client";
 
-export const ADBRAIN_API_URL = process.env.EXPO_PUBLIC_ADBRAIN_API_URL ?? "";
+export const ADBRAIN_API_URL = process.env.EXPO_PUBLIC_ADBRAIN_API_URL ?? "https://adbrain.aw5703066.workers.dev";
 
 type ChatPayload = {
   message: string;
