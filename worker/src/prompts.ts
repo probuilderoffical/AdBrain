@@ -52,13 +52,15 @@ export function buildProductAnalysisPrompt(args: {
     target_audience?: string | null;
   };
   sources: Array<{ source_type: string; name?: string | null; content: string; metadata?: unknown }>;
+  reviews?: Array<{ ref: string; text: string; sourceName?: string | null }>;
+  reviewStats?: { unique: number; sampled: number; duplicatesRemoved: number };
 }) {
   const sourceText = args.sources
-    .slice(0, 20)
+    .slice(0, 16)
     .map((source, index) => {
-      const clipped = source.content.slice(0, 10000);
+      const clipped = source.content.slice(0, 5000);
       return [
-        "SOURCE " + (index + 1),
+        "SOURCE_REF: S" + (index + 1),
         "TYPE: " + source.source_type,
         source.name ? "NAME: " + source.name : "",
         "CONTENT:",
@@ -66,7 +68,18 @@ export function buildProductAnalysisPrompt(args: {
       ].filter(Boolean).join("\n");
     })
     .join("\n\n---\n\n")
-    .slice(0, 28000);
+    .slice(0, 14000);
+
+  const reviewText = (args.reviews || [])
+    .map((review) => "[" + review.ref + "] " + review.text.slice(0, 320))
+    .join("\n")
+    .slice(0, 14000);
+
+  const stats = args.reviewStats
+    ? "Unique reviews: " + args.reviewStats.unique +
+      "; analyzed sample: " + args.reviewStats.sampled +
+      "; exact duplicates removed: " + args.reviewStats.duplicatesRemoved
+    : "No normalized review statistics available.";
 
   return [
     "PROJECT:",
@@ -76,13 +89,27 @@ export function buildProductAnalysisPrompt(args: {
     "Description: " + (args.project.product_description || "unknown"),
     "Target audience: " + (args.project.target_audience || "unknown"),
     "",
-    "EVIDENCE SOURCES:",
-    sourceText || "No source text supplied.",
+    "REVIEW DATASET STATS:",
+    stats,
+    "",
+    "NORMALIZED CUSTOMER REVIEWS:",
+    reviewText || "No normalized reviews supplied.",
+    "",
+    "OTHER EVIDENCE SOURCES:",
+    sourceText || "No other source text supplied.",
+    "",
+    "Citation rules:",
+    "- Review evidence must cite review refs like R001, R002.",
+    "- Other source evidence must cite source refs like S1, S2.",
+    "- Only cite refs that are actually supplied above.",
+    "- For repeated review signals, include every clearly matching review ref you can identify, up to 30 refs.",
+    "- If an idea is inference rather than directly stated, set inference=true and do not invent refs.",
     "",
     "Return exactly this JSON shape:",
-    '{"summary":"short research summary","insights":[{"type":"pain|desire|objection|phrase|use_case|angle|hook|persona|offer","label":"short label","detail":"specific explanation","score":0,"evidence":["short evidence quote or source reference"],"inference":false}]}',
+    '{"summary":"short research summary","insights":[{"type":"pain|desire|objection|phrase|use_case|angle|hook|persona|offer","label":"short label","detail":"specific explanation","score":0,"evidence_refs":["R001","S1"],"inference":false}]}',
     "",
-    "Produce 12-30 high-value insights across multiple types. Do not duplicate the same idea."
+    "Produce 12-30 distinct high-value insights across multiple types.",
+    "Scores are evidence/usefulness strength only. They are not ad-performance predictions."
   ].join("\n");
 }
 
