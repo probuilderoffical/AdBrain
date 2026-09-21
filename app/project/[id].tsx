@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { addProjectSource, analyzeProject, getProject, Insight, Project, ProjectSource } from "@/api/adbrain";
 import { useTheme } from "@/theme/ThemeProvider";
+import { ResponsiveContent, ResponsiveScreen, useResponsiveLayout } from "@/ui/ResponsiveScreen";
 
 const SOURCE_OPTIONS: Array<{ key: ProjectSource["source_type"]; label: string }> = [
   { key: "product_info", label: "Product URL / Info" },
@@ -14,6 +15,7 @@ const SOURCE_OPTIONS: Array<{ key: ProjectSource["source_type"]; label: string }
 
 export default function ProjectDetailScreen() {
   const { colors } = useTheme();
+  const { gutter, isNarrow } = useResponsiveLayout();
   const params = useLocalSearchParams<{ id: string }>();
   const projectId = String(params.id || "");
   const [project, setProject] = useState<Project | null>(null);
@@ -89,18 +91,18 @@ export default function ProjectDetailScreen() {
   }, [insights]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: 54 }}>
-      <View style={{ paddingHorizontal: 20, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+    <ResponsiveScreen keyboard>
+      <View style={{ paddingHorizontal: gutter, paddingTop: 8, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
         <Pressable onPress={() => router.back()} style={{ padding: 8, marginLeft: -8 }}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </Pressable>
-        <Text numberOfLines={1} style={{ flex: 1, fontSize: 22, fontWeight: "800", color: colors.text, textAlign: "center" }}>{project?.name || "Project"}</Text>
+        <Text numberOfLines={1} style={{ flex: 1, fontSize: isNarrow ? 19 : 22, fontWeight: "800", color: colors.text, textAlign: "center" }}>{project?.name || "Project"}</Text>
         <Pressable onPress={() => router.push({ pathname: "/chat", params: { projectId } })} style={{ padding: 8 }}>
           <Ionicons name="chatbubble-ellipses-outline" size={24} color={colors.text} />
         </Pressable>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 90 }}>
+      <ResponsiveContent bottomPadding={90}>
         {project ? (
           <View style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, borderRadius: 18, padding: 16 }}>
             <Text style={{ color: colors.text, fontSize: 20, fontWeight: "800" }}>{project.product_name || project.name}</Text>
@@ -187,7 +189,7 @@ export default function ProjectDetailScreen() {
             </View>
           </View>
         ))}
-      </ScrollView>
-    </View>
+      </ResponsiveContent>
+    </ResponsiveScreen>
   );
 }
