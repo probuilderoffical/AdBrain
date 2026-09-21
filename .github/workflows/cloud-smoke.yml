@@ -23,7 +23,7 @@ jobs:
             echo "Attempt $i..."
             BODY=$(curl -sS --max-time 15 -w "\n%{http_code}" https://adbrain.aw5703066.workers.dev/health || true)
             CODE=$(echo "$BODY" | tail -n1)
-            JSON=$(echo "$BODY" | sed "$d")
+            JSON=$(echo "$BODY" | sed '$d')
             echo "$JSON"
             if [ "$CODE" = "200" ] && echo "$JSON" | grep -q '"database":"connected"'; then
               echo "AdBrain cloud health is good."
