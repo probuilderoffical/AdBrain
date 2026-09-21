@@ -1,6 +1,7 @@
 name: Smoke Test Production
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
@@ -11,13 +12,22 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
-      - name: Wait for Cloudflare deployment
-        run: sleep 20
-      - name: Verify production database and AI
+      - name: Wait for Cloudflare deployment and verify database + AI
+        shell: bash
         run: |
           set -e
-          BODY=$(curl --fail --silent --show-error --retry 8 --retry-delay 5 "https://adbrain.aw5703066.workers.dev/health/deep")
-          echo "$BODY"
-          echo "$BODY" | grep '"ok":true'
-          echo "$BODY" | grep '"database":"connected"'
-          echo "$BODY" | grep '"ai":"responding"'
+          URL="https://adbrain.aw5703066.workers.dev/health/deep"
+          for i in $(seq 1 18); do
+            echo "Attempt $i..."
+            BODY=$(curl -sS --max-time 20 "$URL" || true)
+            echo "$BODY"
+            if echo "$BODY" | grep -q '"ok":true' && \
+               echo "$BODY" | grep -q '"database":"connected"' && \
+               echo "$BODY" | grep -q '"ai":"responding"'; then
+              echo "Production DB + Workers AI smoke test passed."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Production smoke test failed after retries."
+          exit 1
