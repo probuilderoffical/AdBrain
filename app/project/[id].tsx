@@ -143,7 +143,24 @@ export default function ProjectDetailScreen() {
           </View>
         ) : null}
 
-        <View style={{ marginTop: 28, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, borderRadius: 18, padding: 16 }}>
+        <Pressable
+          disabled={!insights.length}
+          onPress={() => router.push({ pathname: "/creative/[id]", params: { id: projectId } })}
+          style={{ marginTop: 28, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, borderRadius: 18, padding: 16, opacity: insights.length ? 1 : 0.55 }}
+        >
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.text, fontSize: 20, fontWeight: "800" }}>Creative Studio</Text>
+              <Text style={{ color: colors.muted, marginTop: 6, lineHeight: 20 }}>
+                Saved research se ad angles, hooks, UGC scripts, offers aur ad copy generate karo.
+              </Text>
+            </View>
+            <Ionicons name="sparkles-outline" size={25} color={colors.text} />
+          </View>
+          {!insights.length ? <Text style={{ color: colors.muted, marginTop: 10, fontSize: 12 }}>Pehle Product Intelligence analysis run karo.</Text> : null}
+        </Pressable>
+
+        <View style={{ marginTop: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, borderRadius: 18, padding: 16 }}>
           <Text style={{ color: colors.text, fontSize: 20, fontWeight: "800" }}>AdBrain Product Intelligence</Text>
           <Text style={{ color: colors.muted, marginTop: 7, lineHeight: 21 }}>Sources ko evidence-based pains, desires, objections, customer language, personas, offers, angles aur hooks me convert karta hai.</Text>
           <Pressable disabled={analyzing} onPress={() => void analyze()} style={{ marginTop: 15, backgroundColor: colors.primary, borderRadius: 13, padding: 14, alignItems: "center", opacity: analyzing ? 0.5 : 1 }}>

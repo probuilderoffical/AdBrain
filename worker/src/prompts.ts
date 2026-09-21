@@ -85,3 +85,37 @@ export function buildProductAnalysisPrompt(args: {
     "Produce 12-30 high-value insights across multiple types. Do not duplicate the same idea."
   ].join("\n");
 }
+
+
+export const ADBRAIN_CREATIVE_SYSTEM_PROMPT = [
+  "You are AdBrain Creative Studio, an ecommerce performance creative engine.",
+  "Use only the supplied project intelligence as the strategic basis.",
+  "Return valid JSON only. No markdown or code fences.",
+  "Create diverse testable concepts, not minor rewrites of the same idea.",
+  "Do not invent customer claims, guarantees, medical claims or product capabilities.",
+  "Prefer specific customer language, pains, desires, objections and use cases from the evidence.",
+  "Treat every angle and hook as a hypothesis to test, never as a guaranteed winner."
+].join(" ");
+
+export function buildCreativePrompt(args: {
+  projectContext: string;
+  mode: string;
+  instruction?: string;
+}) {
+  const mode = ["full_pack", "hooks", "ugc", "offers", "ad_copy"].includes(args.mode)
+    ? args.mode
+    : "full_pack";
+  return [
+    "PROJECT INTELLIGENCE:",
+    args.projectContext,
+    "",
+    "REQUESTED MODE: " + mode,
+    args.instruction ? "EXTRA INSTRUCTION: " + args.instruction.slice(0, 2000) : "",
+    "",
+    "Return exactly this JSON-compatible structure:",
+    '{"title":"Creative Pack","summary":"strategy summary","angles":[{"name":"angle","why":"evidence-based reason","hooks":["hook 1","hook 2","hook 3"]}],"ugc_scripts":[{"concept":"concept","hook":"opening hook","body":"short creator script","cta":"CTA"}],"offers":[{"name":"offer idea","why":"why it may fit"}],"ad_copy":[{"headline":"headline","primary_text":"short primary text","cta":"CTA"}]}',
+    "",
+    "For full_pack create 5 angles, 15 hooks total, 3 UGC scripts, 3 offer ideas and 3 ad-copy variations.",
+    "For a focused mode, prioritize that section but keep the same JSON keys."
+  ].filter(Boolean).join("\n");
+}

@@ -1,8 +1,10 @@
 import { neon } from "@neondatabase/serverless";
 import {
   ADBRAIN_ANALYSIS_SYSTEM_PROMPT,
+  ADBRAIN_CREATIVE_SYSTEM_PROMPT,
   ADBRAIN_SYSTEM_PROMPT,
   buildContextPrompt,
+  buildCreativePrompt,
   buildProductAnalysisPrompt
 } from "./prompts";
 
@@ -21,6 +23,9 @@ type InsightType = "pain" | "desire" | "objection" | "phrase" | "use_case" | "an
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const INSIGHT_TYPES = new Set<InsightType>(["pain", "desire", "objection", "phrase", "use_case", "angle", "hook", "persona", "offer"]);
 const SOURCE_TYPES = new Set(["product_info", "review_text", "review_csv", "notes", "competitor"]);
+const DAILY_CHAT_LIMIT = 20;
+const DAILY_ANALYSIS_LIMIT = 3;
+const DAILY_CREATIVE_LIMIT = 8;
 
 function makeJson(data: unknown, status = 200, origin = "*") {
   return new Response(JSON.stringify(data), {
@@ -144,29 +149,45 @@ async function importPublicPage(rawUrl: string) {
   if (!contentType.includes("text/html") && !contentType.includes("application/xhtml+xml")) {
     throw new Error("SOURCE_NOT_HTML");
   }
+
   const html = (await res.text()).slice(0, 1_500_000);
-  const title = cleanHtmlText(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || "").slice(0, 240);
+  const title = cleanHtmlText(html.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i)?.[1] || "").slice(0, 240);
   const metaDescription =
     html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']*)["'][^>]*>/i)?.[1] ||
     html.match(/<meta[^>]+content=["']([^"']*)["'][^>]+name=["']description["'][^>]*>/i)?.[1] ||
     "";
-  const jsonLd = [...html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)]
+  const jsonLd = [...html.matchAll(/<script[^>]+type=["']application\\/ld\\+json["'][^>]*>([\\s\\S]*?)<\\/script>/gi)]
     .slice(0, 8)
     .map((match) => match[1].trim())
-    .join("\n");
+    .join("\\n");
+
+  const isShopify = /cdn\\.shopify\\.com|Shopify\\.theme|shopify-section|ShopifyAnalytics/i.test(html);
+  let shopifyProductJson = "";
+  const productMatch = url.pathname.match(/\\/products\\/([^/?#]+)/i);
+  if (isShopify && productMatch?.[1]) {
+    try {
+      const productJsonUrl = new URL("/products/" + productMatch[1] + ".js", url.origin);
+      const productRes = await fetch(productJsonUrl.toString(), {
+        headers: { "user-agent": "Mozilla/5.0 (compatible; AdBrainResearch/1.0)", accept: "application/json" }
+      });
+      if (productRes.ok) shopifyProductJson = (await productRes.text()).slice(0, 30000);
+    } catch {
+      shopifyProductJson = "";
+    }
+  }
+
   const visible = cleanHtmlText(html).slice(0, 50000);
   const content = [
+    isShopify ? "PLATFORM: Shopify" : "PLATFORM: Ecommerce/Public Web",
     title ? "PAGE TITLE: " + title : "",
     metaDescription ? "META DESCRIPTION: " + cleanHtmlText(metaDescription) : "",
-    jsonLd ? "STRUCTURED DATA:\n" + jsonLd.slice(0, 18000) : "",
-    visible ? "PAGE TEXT:\n" + visible : ""
-  ].filter(Boolean).join("\n\n").slice(0, 65000);
+    shopifyProductJson ? "SHOPIFY PRODUCT DATA:\\n" + shopifyProductJson : "",
+    jsonLd ? "STRUCTURED DATA:\\n" + jsonLd.slice(0, 18000) : "",
+    visible ? "PAGE TEXT:\\n" + visible : ""
+  ].filter(Boolean).join("\\n\\n").slice(0, 80000);
+
   if (!content) throw new Error("SOURCE_EMPTY");
-  return {
-    finalUrl: res.url || url.toString(),
-    title: title || url.hostname,
-    content
-  };
+  return { finalUrl: res.url || url.toString(), title: title || url.hostname, content, platform: isShopify ? "shopify" : "web" };
 }
 
 async function getSettings(sql: any, userId: string) {
@@ -186,6 +207,40 @@ async function getOwnedProject(sql: any, userId: string, projectId: string) {
   const rows = await sql`SELECT * FROM public.adbrain_projects
     WHERE id = ${projectId}::uuid AND user_id = ${userId}::uuid LIMIT 1`;
   return rows[0] || null;
+}
+
+async function getDailyUsage(sql: any, userId: string) {
+  const rows = await sql`SELECT chat_calls, analysis_calls, creative_calls
+    FROM public.adbrain_ai_usage
+    WHERE user_id = ${userId}::uuid AND usage_date = CURRENT_DATE
+    LIMIT 1`;
+  return rows[0] || { chat_calls: 0, analysis_calls: 0, creative_calls: 0 };
+}
+
+async function consumeAiUsage(sql: any, userId: string, kind: "chat" | "analysis" | "creative") {
+  await sql`INSERT INTO public.adbrain_ai_usage (user_id, usage_date)
+    VALUES (${userId}::uuid, CURRENT_DATE)
+    ON CONFLICT (user_id, usage_date) DO NOTHING`;
+
+  if (kind === "chat") {
+    const rows = await sql`UPDATE public.adbrain_ai_usage
+      SET chat_calls = chat_calls + 1, updated_at = now()
+      WHERE user_id = ${userId}::uuid AND usage_date = CURRENT_DATE AND chat_calls < ${DAILY_CHAT_LIMIT}
+      RETURNING chat_calls`;
+    if (!rows.length) throw new Error("USER_DAILY_AI_LIMIT_CHAT");
+  } else if (kind === "analysis") {
+    const rows = await sql`UPDATE public.adbrain_ai_usage
+      SET analysis_calls = analysis_calls + 1, updated_at = now()
+      WHERE user_id = ${userId}::uuid AND usage_date = CURRENT_DATE AND analysis_calls < ${DAILY_ANALYSIS_LIMIT}
+      RETURNING analysis_calls`;
+    if (!rows.length) throw new Error("USER_DAILY_AI_LIMIT_ANALYSIS");
+  } else {
+    const rows = await sql`UPDATE public.adbrain_ai_usage
+      SET creative_calls = creative_calls + 1, updated_at = now()
+      WHERE user_id = ${userId}::uuid AND usage_date = CURRENT_DATE AND creative_calls < ${DAILY_CREATIVE_LIMIT}
+      RETURNING creative_calls`;
+    if (!rows.length) throw new Error("USER_DAILY_AI_LIMIT_CREATIVE");
+  }
 }
 
 async function projectContext(sql: any, userId: string, projectId: string | null) {
@@ -240,6 +295,7 @@ async function runProductAnalysis(env: Env, sql: any, userId: string, projectId:
   if (!sources.length && !project.product_description) throw new Error("NO_PROJECT_EVIDENCE");
 
   const prompt = buildProductAnalysisPrompt({ project, sources: sources as any[] });
+  await consumeAiUsage(sql, userId, "analysis");
   const aiResult = await env.AI.run(env.ADBRAIN_MODEL, {
     messages: [
       { role: "system", content: ADBRAIN_ANALYSIS_SYSTEM_PROMPT },
@@ -285,6 +341,41 @@ async function runProductAnalysis(env: Env, sql: any, userId: string, projectId:
   }
 
   return { summary, insights };
+}
+
+async function runCreativeStudio(env: Env, sql: any, userId: string, projectId: string, mode: string, instruction?: string) {
+  const project = await getOwnedProject(sql, userId, projectId);
+  if (!project) throw new Error("PROJECT_NOT_FOUND");
+  const context = await projectContext(sql, userId, projectId);
+  if (!context) throw new Error("NO_PROJECT_EVIDENCE");
+
+  await consumeAiUsage(sql, userId, "creative");
+  const result = await env.AI.run(env.ADBRAIN_MODEL, {
+    messages: [
+      { role: "system", content: ADBRAIN_CREATIVE_SYSTEM_PROMPT },
+      { role: "user", content: buildCreativePrompt({ projectContext: context, mode, instruction }) }
+    ],
+    max_tokens: 2200,
+    temperature: 0.65,
+    top_p: 0.92
+  });
+  const text = extractResponseText(result);
+  if (!text) throw new Error("EMPTY_MODEL_RESPONSE");
+  const parsed = parseJsonLoose(text);
+  const title = String(parsed?.title || (project.product_name || project.name) + " Creative Pack").trim().slice(0, 240);
+  const content = {
+    summary: String(parsed?.summary || "").slice(0, 5000),
+    angles: Array.isArray(parsed?.angles) ? parsed.angles.slice(0, 12) : [],
+    ugc_scripts: Array.isArray(parsed?.ugc_scripts) ? parsed.ugc_scripts.slice(0, 10) : [],
+    offers: Array.isArray(parsed?.offers) ? parsed.offers.slice(0, 10) : [],
+    ad_copy: Array.isArray(parsed?.ad_copy) ? parsed.ad_copy.slice(0, 10) : [],
+    mode
+  };
+  const rows = await sql`INSERT INTO public.adbrain_artifacts
+    (user_id, project_id, artifact_type, title, content)
+    VALUES (${userId}::uuid, ${projectId}::uuid, 'creative_pack', ${title}, ${JSON.stringify(content)}::jsonb)
+    RETURNING id, project_id, artifact_type, title, content, status, created_at, updated_at`;
+  return rows[0];
 }
 
 function quotaError(message: string, origin: string) {
@@ -360,6 +451,11 @@ export default {
 
       if (path === "/settings" && request.method === "GET") {
         return makeJson({ settings: await getSettings(sql, userId) }, 200, origin);
+      }
+
+      if (path === "/usage" && request.method === "GET") {
+        const usage = await getDailyUsage(sql, userId);
+        return makeJson({ usage, limits: { chat: DAILY_CHAT_LIMIT, analysis: DAILY_ANALYSIS_LIMIT, creative: DAILY_CREATIVE_LIMIT } }, 200, origin);
       }
 
       if (path === "/settings" && (request.method === "POST" || request.method === "PATCH")) {
@@ -463,6 +559,7 @@ export default {
             content = [content, imported.content].filter(Boolean).join("\n\n");
             name = name || imported.title;
             metadata.url = imported.finalUrl;
+            metadata.platform = imported.platform;
             metadata.imported_at = new Date().toISOString();
           }
           content = content.slice(0, 100000);
@@ -489,6 +586,21 @@ export default {
             RETURNING id`;
           if (!rows.length) return makeJson({ error: "Source not found" }, 404, origin);
           return makeJson({ ok: true }, 200, origin);
+        }
+
+        if (segments[2] === "artifacts" && request.method === "GET") {
+          const artifacts = await sql`SELECT id, project_id, artifact_type, title, content, status, created_at, updated_at
+            FROM public.adbrain_artifacts
+            WHERE project_id = ${projectId}::uuid AND user_id = ${userId}::uuid AND status = 'active'
+            ORDER BY updated_at DESC LIMIT 50`;
+          return makeJson({ artifacts }, 200, origin);
+        }
+
+        if (segments[2] === "creative" && request.method === "POST") {
+          const body = await readJson(request);
+          const artifact = await runCreativeStudio(env, sql, userId, projectId, String(body.mode || "full_pack"),
+            typeof body.instruction === "string" ? body.instruction : undefined);
+          return makeJson({ artifact, model: env.ADBRAIN_MODEL }, 201, origin);
         }
 
         if (segments[2] === "analyze" && request.method === "POST") {
@@ -571,6 +683,7 @@ export default {
           projectContext: await projectContext(sql, userId, projectId)
         });
 
+        await consumeAiUsage(sql, userId, "chat");
         const aiResult = await env.AI.run(env.ADBRAIN_MODEL, {
           messages: [
             { role: "system", content: ADBRAIN_SYSTEM_PROMPT + " Response style: " + settings.response_style + ". Preferred language: " + settings.preferred_language + "." },
@@ -606,6 +719,9 @@ export default {
       if (quota) return quota;
       if (message === "PROJECT_NOT_FOUND") return makeJson({ error: "Project not found" }, 404, origin);
       if (message === "NO_PROJECT_EVIDENCE") return makeJson({ error: "Add product details, reviews or competitor sources before analysis." }, 400, origin);
+      if (message.startsWith("USER_DAILY_AI_LIMIT_")) {
+        return makeJson({ error: message, detail: "Aaj ka free AdBrain AI allowance is action ke liye complete ho gaya hai. Kal quota reset hoga." }, 429, origin);
+      }
       if (["INVALID_URL", "PRIVATE_URL_BLOCKED", "SOURCE_NOT_HTML", "SOURCE_EMPTY"].includes(message) || message.startsWith("SOURCE_FETCH_FAILED_")) {
         return makeJson({ error: message }, 400, origin);
       }

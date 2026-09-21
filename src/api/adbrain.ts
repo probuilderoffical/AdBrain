@@ -139,3 +139,42 @@ export async function recordCloudFeedback(messageId: string, signal: "like" | "d
     body: JSON.stringify({ messageId, signal })
   });
 }
+
+
+export type AdBrainArtifact = {
+  id: string;
+  project_id: string;
+  artifact_type: "creative_pack" | "ugc_script" | "ad_copy" | "offer_pack" | "research_report";
+  title: string;
+  content: {
+    summary?: string;
+    angles?: Array<{ name?: string; why?: string; hooks?: string[] }>;
+    ugc_scripts?: Array<{ concept?: string; hook?: string; body?: string; cta?: string }>;
+    offers?: Array<{ name?: string; why?: string }>;
+    ad_copy?: Array<{ headline?: string; primary_text?: string; cta?: string }>;
+    mode?: string;
+  };
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function listProjectArtifacts(projectId: string) {
+  const data = await api<{ artifacts: AdBrainArtifact[] }>("/projects/" + projectId + "/artifacts");
+  return data.artifacts;
+}
+
+export async function generateCreativePack(projectId: string, input: { mode?: "full_pack" | "hooks" | "ugc" | "offers" | "ad_copy"; instruction?: string } = {}) {
+  const data = await api<{ artifact: AdBrainArtifact; model: string }>("/projects/" + projectId + "/creative", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+  return data.artifact;
+}
+
+export async function getDailyUsage() {
+  return api<{
+    usage: { chat_calls: number; analysis_calls: number; creative_calls: number };
+    limits: { chat: number; analysis: number; creative: number };
+  }>("/usage");
+}
