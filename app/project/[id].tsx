@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { addProjectSource, analyzeProject, getProject, Insight, Project, ProjectSource } from "@/api/adbrain";
+import { addProjectSource, analyzeProject, getProject, Insight, Project, ProjectScorecard, ProjectSource } from "@/api/adbrain";
 import { useTheme } from "@/theme/ThemeProvider";
 import { ResponsiveContent, ResponsiveScreen, useResponsiveLayout } from "@/ui/ResponsiveScreen";
 
@@ -21,6 +21,9 @@ export default function ProjectDetailScreen() {
   const [project, setProject] = useState<Project | null>(null);
   const [sources, setSources] = useState<ProjectSource[]>([]);
   const [insights, setInsights] = useState<Insight[]>([]);
+  const [scorecard, setScorecard] = useState<ProjectScorecard | null>(null);
+  const [reviewCount, setReviewCount] = useState(0);
+  const [importNote, setImportNote] = useState("");
   const [sourceType, setSourceType] = useState<ProjectSource["source_type"]>("product_info");
   const [sourceText, setSourceText] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
@@ -38,6 +41,8 @@ export default function ProjectDetailScreen() {
       setProject(data.project);
       setSources(data.sources);
       setInsights(data.insights);
+      setScorecard(data.scorecard);
+      setReviewCount(Number(data.reviewStats?.unique_reviews || 0));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Project load nahi hua.");
     }
@@ -49,13 +54,20 @@ export default function ProjectDetailScreen() {
     if (!sourceText.trim() && !sourceUrl.trim()) return;
     setBusy(true);
     setError("");
+    setImportNote("");
     try {
-      await addProjectSource(projectId, {
+      const result = await addProjectSource(projectId, {
         source_type: sourceType,
         name: sourceName.trim() || undefined,
         content: sourceText.trim() || undefined,
         url: sourceUrl.trim() || undefined
       });
+      if (result.reviewImport) {
+        setImportNote(
+          result.reviewImport.inserted + " new unique reviews saved" +
+          (result.reviewImport.duplicates ? " · " + result.reviewImport.duplicates + " duplicates ignored" : "")
+        );
+      }
       setSourceText("");
       setSourceUrl("");
       setSourceName("");
@@ -73,6 +85,7 @@ export default function ProjectDetailScreen() {
     try {
       const result = await analyzeProject(projectId);
       setSummary(result.summary);
+      setScorecard(result.scorecard);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Analysis run nahi hui.");
@@ -112,6 +125,9 @@ export default function ProjectDetailScreen() {
 
         <Text style={{ color: colors.text, fontSize: 20, fontWeight: "800", marginTop: 26 }}>Research Sources</Text>
         <Text style={{ color: colors.muted, marginTop: 6, lineHeight: 21 }}>Public product/competitor URL import karo, reviews paste karo ya apni notes add karo.</Text>
+        <Text style={{ color: colors.muted, marginTop: 7, fontSize: 12 }}>
+          {reviewCount} unique reviews normalized · exact duplicates count me dobara include nahi hote.
+        </Text>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 13 }}>
           {SOURCE_OPTIONS.map((item) => {
@@ -131,6 +147,7 @@ export default function ProjectDetailScreen() {
           <Pressable disabled={busy || (!sourceText.trim() && !sourceUrl.trim())} onPress={() => void addSource()} style={{ backgroundColor: colors.primary, borderRadius: 13, padding: 13, alignItems: "center", opacity: busy || (!sourceText.trim() && !sourceUrl.trim()) ? 0.45 : 1 }}>
             {busy ? <ActivityIndicator color={colors.background} /> : <Text style={{ color: colors.background, fontWeight: "800" }}>Add Research Source</Text>}
           </Pressable>
+          {importNote ? <Text style={{ color: colors.muted, lineHeight: 19, fontSize: 13 }}>{importNote}</Text> : null}
         </View>
 
         {sources.length ? (
@@ -142,6 +159,36 @@ export default function ProjectDetailScreen() {
                 <Text numberOfLines={3} style={{ color: colors.muted, marginTop: 7, lineHeight: 18 }}>{source.content}</Text>
               </View>
             ))}
+          </View>
+        ) : null}
+
+        {scorecard?.metrics?.length ? (
+          <View style={{ marginTop: 28 }}>
+            <Text style={{ color: colors.text, fontSize: 20, fontWeight: "800" }}>Product Scorecard</Text>
+            <Text style={{ color: colors.muted, marginTop: 6, lineHeight: 20 }}>
+              Evidence coverage aur messaging signals. Ye product success ya winning-ad prediction nahi hai.
+            </Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 13 }}>
+              {scorecard.metrics.map((metric) => (
+                <View key={metric.key} style={{
+                  width: isNarrow ? "100%" : "48%",
+                  flexGrow: 1,
+                  minWidth: isNarrow ? undefined : 145,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.card,
+                  borderRadius: 15,
+                  padding: 13
+                }}>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                    <Text style={{ flex: 1, color: colors.text, fontWeight: "800" }}>{metric.label}</Text>
+                    <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>{Math.round(metric.score)}</Text>
+                  </View>
+                  <Text style={{ color: colors.muted, marginTop: 6, lineHeight: 18, fontSize: 12 }}>{metric.description}</Text>
+                  <Text style={{ color: colors.muted, marginTop: 7, fontSize: 11 }}>{metric.basis}</Text>
+                </View>
+              ))}
+            </View>
           </View>
         ) : null}
 
@@ -183,7 +230,24 @@ export default function ProjectDetailScreen() {
                     <Text style={{ flex: 1, color: colors.text, fontWeight: "700" }}>{insight.label}</Text>
                     <Text style={{ color: colors.muted, fontWeight: "700" }}>{Math.round(Number(insight.score || 0))}</Text>
                   </View>
+                  {Number(insight.mention_count || insight.mentionCount || 0) > 0 ? (
+                    <Text style={{ color: colors.muted, marginTop: 5, fontSize: 12 }}>
+                      {Number(insight.mention_count || insight.mentionCount || 0)} verified review mentions
+                    </Text>
+                  ) : null}
                   {insight.detail ? <Text style={{ color: colors.muted, marginTop: 7, lineHeight: 20 }}>{insight.detail}</Text> : null}
+                  {insight.evidence?.length ? (
+                    <View style={{ marginTop: 10, gap: 7 }}>
+                      {insight.evidence.slice(0, 3).map((evidence, evidenceIndex) => (
+                        <View key={evidence.ref + evidenceIndex} style={{ borderLeftWidth: 2, borderLeftColor: colors.border, paddingLeft: 9 }}>
+                          <Text style={{ color: colors.muted, fontSize: 11, fontWeight: "700" }}>
+                            {evidence.ref} · {evidence.kind === "review" ? "Customer review" : (evidence.sourceName || "Source")}
+                          </Text>
+                          {evidence.quote ? <Text style={{ color: colors.muted, marginTop: 3, lineHeight: 18, fontSize: 12 }}>{evidence.quote}</Text> : null}
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
                 </View>
               ))}
             </View>
