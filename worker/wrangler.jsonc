@@ -7,6 +7,7 @@
   "ai": { "binding": "AI" },
   "vars": {
     "NEON_AUTH_BASE_URL": "https://ep-old-term-b3v342gi.neonauth.c-4.ap-southeast-1.aws.neon.tech/neondb/auth",
-    "ADBRAIN_MODEL": "@cf/qwen/qwen3-30b-a3b-fp8"
+    "ADBRAIN_MODEL": "@cf/qwen/qwen3-30b-a3b-fp8",
+    "ADBRAIN_VERSION": "0.2.0"
   }
 }
