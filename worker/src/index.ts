@@ -215,6 +215,138 @@ async function importPublicPage(rawUrl: string) {
   };
 }
 
+function normalizeReviewText(value: string) {
+  return value
+    .replace(/^[-*•\s]+/, "")
+    .replace(/^["']|["']$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function reviewKey(value: string) {
+  const normalized = normalizeReviewText(value).toLowerCase();
+  let hash = 2166136261;
+  for (let i = 0; i < normalized.length; i++) {
+    hash ^= normalized.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0") + ":" + normalized.length;
+}
+
+function splitReviewUnits(content: string, sourceType: string) {
+  const trimmed = content.trim();
+  if (!trimmed) return [] as string[];
+
+  let candidates: string[] = [];
+  if (sourceType === "review_csv") {
+    const lines = trimmed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const body = lines.length && /review|text|content|comment/i.test(lines[0]) ? lines.slice(1) : lines;
+    candidates = body.map((line) => {
+      const cells = line.split(",").map((cell) => normalizeReviewText(cell));
+      return cells.sort((a, b) => b.length - a.length)[0] || "";
+    });
+  } else {
+    const blocks = trimmed.split(/\n\s*\n+/).map((x) => x.trim()).filter(Boolean);
+    candidates = blocks.length > 1 ? blocks : trimmed.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+  }
+
+  const seen = new Set<string>();
+  const reviews: string[] = [];
+  for (const raw of candidates) {
+    const text = normalizeReviewText(raw).slice(0, 4000);
+    if (text.length < 12) continue;
+    const key = reviewKey(text);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    reviews.push(text);
+    if (reviews.length >= 1000) break;
+  }
+  return reviews;
+}
+
+async function persistReviewUnits(sql: any, userId: string, projectId: string, sourceId: string, sourceType: string, content: string) {
+  const reviews = splitReviewUnits(content, sourceType);
+  let inserted = 0;
+  let duplicates = 0;
+  for (const text of reviews) {
+    const key = reviewKey(text);
+    const rows = await sql`INSERT INTO public.adbrain_review_units
+      (user_id, project_id, source_id, review_key, review_text)
+      VALUES (${userId}::uuid, ${projectId}::uuid, ${sourceId}::uuid, ${key}, ${text})
+      ON CONFLICT (project_id, review_key) DO NOTHING
+      RETURNING id`;
+    if (rows.length) inserted += 1;
+    else duplicates += 1;
+  }
+  return { parsed: reviews.length, inserted, duplicates };
+}
+
+function boundedScore(value: number) {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function average(rows: any[]) {
+  if (!rows.length) return 0;
+  return rows.reduce((sum, row) => sum + Number(row.score || 0), 0) / rows.length;
+}
+
+function buildScorecard(insights: any[], stats: { uniqueReviews: number; sourceCount: number; competitorSources: number }) {
+  const byType = (type: string) => insights.filter((row) => row.type === type);
+  const mentions = (rows: any[]) => rows.reduce((sum, row) => sum + Number(row.mentionCount || 0), 0);
+  const pains = byType("pain");
+  const desires = byType("desire");
+  const objections = byType("objection");
+  const angles = byType("angle");
+  const hooks = byType("hook");
+  const offers = byType("offer");
+
+  const metrics = [
+    {
+      key: "evidence_depth",
+      label: "Evidence Depth",
+      score: boundedScore(Math.min(55, stats.uniqueReviews * 2) + Math.min(25, stats.sourceCount * 5) + Math.min(20, insights.filter((x) => x.evidence?.length).length)),
+      description: "Kitna customer/source evidence analysis ko support karta hai.",
+      basis: stats.uniqueReviews + " unique reviews · " + stats.sourceCount + " sources"
+    },
+    {
+      key: "pain_signal",
+      label: "Pain Signal",
+      score: boundedScore(average(pains) * 0.65 + Math.min(35, mentions(pains) * 4)),
+      description: "Customer pain evidence ki strength aur repetition.",
+      basis: pains.length + " pain insights · " + mentions(pains) + " review mentions"
+    },
+    {
+      key: "desire_signal",
+      label: "Desire Signal",
+      score: boundedScore(average(desires) * 0.65 + Math.min(35, mentions(desires) * 4)),
+      description: "Desired outcomes aur customer pull ki evidence strength.",
+      basis: desires.length + " desire insights · " + mentions(desires) + " review mentions"
+    },
+    {
+      key: "objection_pressure",
+      label: "Objection Pressure",
+      score: boundedScore(average(objections) * 0.65 + Math.min(35, mentions(objections) * 4)),
+      description: "Buyer objections kitni strongly aur repeatedly nazar aa rahi hain. High score ka matlab zyada objection pressure hai.",
+      basis: objections.length + " objection insights · " + mentions(objections) + " review mentions"
+    },
+    {
+      key: "creative_opportunity",
+      label: "Creative Opportunity",
+      score: boundedScore(Math.min(60, (angles.length + hooks.length + offers.length) * 5) + Math.min(40, (average(angles) + average(hooks) + average(offers)) / 3 * 0.4)),
+      description: "Evidence se kitne distinct testable messaging directions nikle hain.",
+      basis: angles.length + " angles · " + hooks.length + " hooks · " + offers.length + " offers"
+    },
+    {
+      key: "competitive_context",
+      label: "Competitive Context",
+      score: boundedScore(Math.min(100, stats.competitorSources * 30 + (stats.competitorSources ? 20 : 0))),
+      description: "Competitor evidence kitna available hai; ye product superiority score nahi hai.",
+      basis: stats.competitorSources + " competitor sources"
+    }
+  ];
+  return metrics;
+}
+
 async function getSettings(sql: any, userId: string) {
   const rows = await sql`SELECT preferred_language, memory_enabled, improve_adbrain, chat_history_enabled, response_style
     FROM public.adbrain_user_settings WHERE user_id = ${userId}::uuid LIMIT 1`;
@@ -322,47 +454,112 @@ function normalizeInsight(raw: any) {
   const detail = String(raw?.detail || "").trim().slice(0, 2000);
   const scoreRaw = Number(raw?.score);
   const score = Number.isFinite(scoreRaw) ? Math.max(0, Math.min(100, scoreRaw)) : 50;
-  const evidence = Array.isArray(raw?.evidence)
-    ? raw.evidence.slice(0, 8).map((x: unknown) => String(x).slice(0, 500))
+  const evidenceRefs = Array.isArray(raw?.evidence_refs)
+    ? [...new Set(raw.evidence_refs.map((x: unknown) => String(x).trim().toUpperCase()))].slice(0, 30)
     : [];
-  if (raw?.inference === true && !evidence.includes("INFERENCE")) evidence.push("INFERENCE");
-  return { type, label, detail, score, evidence };
+  return { type, label, detail, score, evidenceRefs, inference: raw?.inference === true };
 }
 
 async function runProductAnalysis(env: Env, sql: any, userId: string, projectId: string) {
   const project = await getOwnedProject(sql, userId, projectId);
   if (!project) throw new Error("PROJECT_NOT_FOUND");
-  const sources = await sql`SELECT source_type, name, content, metadata FROM public.adbrain_sources
-    WHERE project_id = ${projectId}::uuid AND user_id = ${userId}::uuid
-    ORDER BY created_at ASC LIMIT 20`;
+
+  const [sources, reviewRows] = await Promise.all([
+    sql`SELECT id, source_type, name, content, metadata FROM public.adbrain_sources
+      WHERE project_id = ${projectId}::uuid AND user_id = ${userId}::uuid
+      ORDER BY created_at ASC LIMIT 30`,
+    sql`SELECT r.id, r.source_id, r.review_text, s.name AS source_name
+      FROM public.adbrain_review_units r
+      JOIN public.adbrain_sources s ON s.id = r.source_id
+      WHERE r.project_id = ${projectId}::uuid AND r.user_id = ${userId}::uuid
+      ORDER BY r.created_at ASC LIMIT 1000`
+  ]);
   if (!sources.length && !project.product_description) throw new Error("NO_PROJECT_EVIDENCE");
 
-  const prompt = buildProductAnalysisPrompt({ project, sources: sources as any[] });
+  const sampledReviews = (reviewRows as any[]).slice(0, 120).map((row, index) => ({
+    ref: "R" + String(index + 1).padStart(3, "0"),
+    id: String(row.id),
+    sourceId: String(row.source_id),
+    sourceName: row.source_name ? String(row.source_name) : null,
+    text: String(row.review_text)
+  }));
+  const reviewRefMap = new Map(sampledReviews.map((row) => [row.ref, row]));
+  const sourceRefMap = new Map((sources as any[]).map((row, index) => [
+    "S" + (index + 1),
+    { id: String(row.id), sourceName: row.name ? String(row.name) : row.source_type, sourceType: String(row.source_type), content: String(row.content) }
+  ]));
+
+  const prompt = buildProductAnalysisPrompt({
+    project,
+    sources: sources as any[],
+    reviews: sampledReviews,
+    reviewStats: {
+      unique: reviewRows.length,
+      sampled: sampledReviews.length,
+      duplicatesRemoved: 0
+    }
+  });
+
   await consumeAiUsage(sql, userId, "analysis");
   const aiResult = await env.AI.run(env.ADBRAIN_MODEL, {
     messages: [
       { role: "system", content: ADBRAIN_ANALYSIS_SYSTEM_PROMPT },
       { role: "user", content: prompt }
     ],
-    max_tokens: 1800,
+    max_tokens: 2200,
     temperature: 0.2,
     top_p: 0.85
   });
   const text = extractResponseText(aiResult);
   if (!text) throw new Error("EMPTY_MODEL_RESPONSE");
   const parsed = parseJsonLoose(text);
-  const insights = (Array.isArray(parsed?.insights) ? parsed.insights : [])
+
+  const normalized = (Array.isArray(parsed?.insights) ? parsed.insights : [])
     .map(normalizeInsight)
     .filter(Boolean)
-    .slice(0, 36) as Array<ReturnType<typeof normalizeInsight> & {}>;
-  if (!insights.length) throw new Error("AI_ANALYSIS_EMPTY");
+    .slice(0, 36) as any[];
+  if (!normalized.length) throw new Error("AI_ANALYSIS_EMPTY");
+
+  const insights = normalized.map((insight) => {
+    const evidence: any[] = [];
+    const seen = new Set<string>();
+    for (const ref of insight.evidenceRefs) {
+      if (seen.has(ref)) continue;
+      seen.add(ref);
+      const review = reviewRefMap.get(ref);
+      if (review) {
+        evidence.push({
+          ref,
+          kind: "review",
+          reviewId: review.id,
+          sourceId: review.sourceId,
+          sourceName: review.sourceName,
+          quote: review.text.slice(0, 360)
+        });
+        continue;
+      }
+      const source = sourceRefMap.get(ref);
+      if (source) {
+        evidence.push({
+          ref,
+          kind: "source",
+          sourceId: source.id,
+          sourceName: source.sourceName,
+          sourceType: source.sourceType,
+          quote: source.content.slice(0, 360)
+        });
+      }
+    }
+    const mentionCount = new Set(evidence.filter((e) => e.kind === "review").map((e) => e.reviewId)).size;
+    return { ...insight, evidence, mentionCount };
+  });
 
   await sql`DELETE FROM public.adbrain_insights
     WHERE project_id = ${projectId}::uuid AND user_id = ${userId}::uuid`;
 
-  for (const insight of insights as any[]) {
+  for (const insight of insights) {
     await sql`INSERT INTO public.adbrain_insights
-      (project_id, user_id, insight_type, label, detail, score, evidence)
+      (project_id, user_id, insight_type, label, detail, score, evidence, mention_count)
       VALUES (
         ${projectId}::uuid,
         ${userId}::uuid,
@@ -370,16 +567,47 @@ async function runProductAnalysis(env: Env, sql: any, userId: string, projectId:
         ${insight.label},
         ${insight.detail || null},
         ${insight.score},
-        ${JSON.stringify(insight.evidence)}::jsonb
+        ${JSON.stringify(insight.evidence)}::jsonb,
+        ${insight.mentionCount}
       )`;
   }
+
+  const competitorSources = (sources as any[]).filter((row) => row.source_type === "competitor").length;
+  const scorecardMetrics = buildScorecard(insights, {
+    uniqueReviews: reviewRows.length,
+    sourceCount: sources.length,
+    competitorSources
+  });
+  const scorecardStats = {
+    unique_reviews: reviewRows.length,
+    sampled_reviews: sampledReviews.length,
+    source_count: sources.length,
+    competitor_sources: competitorSources,
+    insight_count: insights.length
+  };
+
+  await sql`INSERT INTO public.adbrain_scorecards (project_id, user_id, metrics, stats, methodology_version, updated_at)
+    VALUES (
+      ${projectId}::uuid,
+      ${userId}::uuid,
+      ${JSON.stringify(scorecardMetrics)}::jsonb,
+      ${JSON.stringify(scorecardStats)}::jsonb,
+      'research-v2',
+      now()
+    )
+    ON CONFLICT (project_id) DO UPDATE SET
+      metrics = EXCLUDED.metrics,
+      stats = EXCLUDED.stats,
+      methodology_version = EXCLUDED.methodology_version,
+      updated_at = now()`;
 
   const summary = String(parsed?.summary || "").trim().slice(0, 5000);
   const analysisSettings = await getSettings(sql, userId);
   if (analysisSettings.improve_adbrain) {
     await addLearningEvent(sql, userId, "analysis", projectId, {
       model: env.ADBRAIN_MODEL,
-      insightCount: insights.length
+      insightCount: insights.length,
+      reviewCount: reviewRows.length
     });
   }
   if (summary) {
@@ -390,7 +618,11 @@ async function runProductAnalysis(env: Env, sql: any, userId: string, projectId:
       VALUES (${userId}::uuid, ${projectId}::uuid, 'project_summary', ${summary}, 5)`;
   }
 
-  return { summary, insights };
+  return {
+    summary,
+    insights,
+    scorecard: { metrics: scorecardMetrics, stats: scorecardStats, methodology_version: "research-v2" }
+  };
 }
 
 async function runCreativeStudio(env: Env, sql: any, userId: string, projectId: string, mode: string, instruction?: string) {
@@ -581,17 +813,30 @@ export default {
         if (!project) return makeJson({ error: "Project not found" }, 404, origin);
 
         if (segments.length === 2 && request.method === "GET") {
-          const [sources, insights] = await Promise.all([
+          const [sources, insights, scorecards, reviewStats] = await Promise.all([
             sql`SELECT id, source_type, name, content, metadata, created_at
               FROM public.adbrain_sources
               WHERE project_id = ${projectId}::uuid AND user_id = ${userId}::uuid
               ORDER BY created_at DESC`,
-            sql`SELECT id, insight_type, label, detail, score, evidence, created_at
+            sql`SELECT id, insight_type, label, detail, score, evidence, mention_count, created_at
               FROM public.adbrain_insights
               WHERE project_id = ${projectId}::uuid AND user_id = ${userId}::uuid
-              ORDER BY insight_type ASC, score DESC, created_at DESC`
+              ORDER BY insight_type ASC, score DESC, created_at DESC`,
+            sql`SELECT metrics, stats, methodology_version, updated_at
+              FROM public.adbrain_scorecards
+              WHERE project_id = ${projectId}::uuid AND user_id = ${userId}::uuid
+              LIMIT 1`,
+            sql`SELECT count(*)::int AS unique_reviews
+              FROM public.adbrain_review_units
+              WHERE project_id = ${projectId}::uuid AND user_id = ${userId}::uuid`
           ]);
-          return makeJson({ project, sources, insights }, 200, origin);
+          return makeJson({
+            project,
+            sources,
+            insights,
+            scorecard: scorecards[0] || null,
+            reviewStats: reviewStats[0] || { unique_reviews: 0 }
+          }, 200, origin);
         }
 
         if (segments.length === 2 && request.method === "PATCH") {
@@ -640,8 +885,14 @@ export default {
               ${content},
               ${JSON.stringify(metadata)}::jsonb
             ) RETURNING id, source_type, name, content, metadata, created_at`;
+
+          let reviewImport = null;
+          if (sourceType === "review_text" || sourceType === "review_csv") {
+            reviewImport = await persistReviewUnits(sql, userId, projectId, String(rows[0].id), sourceType, content);
+          }
+
           await sql`UPDATE public.adbrain_projects SET updated_at = now() WHERE id = ${projectId}::uuid`;
-          return makeJson({ source: rows[0] }, 201, origin);
+          return makeJson({ source: rows[0], reviewImport }, 201, origin);
         }
 
         if (segments[2] === "sources" && segments[3] && request.method === "DELETE") {
