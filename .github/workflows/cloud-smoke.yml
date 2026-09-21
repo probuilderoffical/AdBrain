@@ -1,0 +1,35 @@
+name: Smoke Test AdBrain Cloud
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "worker/**"
+      - "src/api/adbrain.ts"
+      - ".github/workflows/cloud-smoke.yml"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for Cloudflare Git deployment
+        run: sleep 25
+      - name: Verify Worker and Neon database
+        shell: bash
+        run: |
+          set -e
+          for i in {1..12}; do
+            echo "Attempt $i..."
+            BODY=$(curl -sS --max-time 15 -w "\n%{http_code}" https://adbrain.aw5703066.workers.dev/health || true)
+            CODE=$(echo "$BODY" | tail -n1)
+            JSON=$(echo "$BODY" | sed "$d")
+            echo "$JSON"
+            if [ "$CODE" = "200" ] && echo "$JSON" | grep -q '"database":"connected"'; then
+              echo "AdBrain cloud health is good."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Cloud health check failed."
+          exit 1
