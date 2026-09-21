@@ -5,29 +5,29 @@ on:
   push:
     branches: [main]
     paths:
-      - "worker/wrangler.jsonc"
+      - "worker/**"
 
 jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
-      - name: Wait for Cloudflare deployment and verify database + AI
+      - name: Verify production database and AI binding without consuming inference quota
         shell: bash
         run: |
           set -e
           URL="https://adbrain.aw5703066.workers.dev/health/deep"
-          for i in $(seq 1 18); do
+          for i in $(seq 1 12); do
             echo "Attempt $i..."
             BODY=$(curl -sS --max-time 20 "$URL" || true)
             echo "$BODY"
             if echo "$BODY" | grep -q '"ok":true' && \
                echo "$BODY" | grep -q '"database":"connected"' && \
-               echo "$BODY" | grep -q '"ai":"responding"' && \
+               echo "$BODY" | grep -q '"ai":"binding-ready"' && \
                echo "$BODY" | grep -q '"@cf/qwen/qwen3-30b-a3b-fp8"'; then
-              echo "Qwen3 production DB + AI smoke test passed."
+              echo "Production DB + AI binding smoke test passed without inference."
               exit 0
             fi
             sleep 10
           done
-          echo "Production Qwen3 smoke test failed after retries."
+          echo "Production smoke test failed after retries."
           exit 1
