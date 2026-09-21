@@ -133,7 +133,7 @@ export function useAdBrainModel() {
         temperature: 0.55,
         top_k: 40,
         top_p: 0.9,
-        repeat_penalty: 1.08,
+        penalty_repeat: 1.08,
         stop: STOP_WORDS,
         chat_template_kwargs: {
           enable_thinking: false,
