@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { AdBrainArtifact, generateCreativePack, getDailyUsage, listProjectArtifacts } from "@/api/adbrain";
 import { useTheme } from "@/theme/ThemeProvider";
+import { ResponsiveContent, ResponsiveScreen, useResponsiveLayout } from "@/ui/ResponsiveScreen";
 
 const MODES = [
   { key: "full_pack", label: "Full Pack" },
@@ -15,6 +16,7 @@ const MODES = [
 
 export default function CreativeStudioScreen() {
   const { colors } = useTheme();
+  const { gutter, isNarrow } = useResponsiveLayout();
   const params = useLocalSearchParams<{ id: string }>();
   const projectId = String(params.id || "");
   const [artifacts, setArtifacts] = useState<AdBrainArtifact[]>([]);
@@ -57,13 +59,13 @@ export default function CreativeStudioScreen() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: 54 }}>
-      <View style={{ paddingHorizontal: 20, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+    <ResponsiveScreen keyboard>
+      <View style={{ paddingHorizontal: gutter, paddingTop: 8, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
         <Pressable onPress={() => router.back()} style={{ padding: 8, marginLeft: -8 }}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </Pressable>
         <View style={{ alignItems: "center" }}>
-          <Text style={{ color: colors.text, fontSize: 22, fontWeight: "800" }}>Creative Studio</Text>
+          <Text style={{ color: colors.text, fontSize: isNarrow ? 19 : 22, fontWeight: "800" }}>Creative Studio</Text>
           <Text style={{ color: colors.muted, fontSize: 11 }}>Research → Ads</Text>
         </View>
         <Pressable onPress={() => router.push({ pathname: "/chat", params: { projectId } })} style={{ padding: 8 }}>
@@ -71,7 +73,7 @@ export default function CreativeStudioScreen() {
         </Pressable>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 80 }}>
+      <ResponsiveContent bottomPadding={80}>
         <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 18, backgroundColor: colors.card, padding: 16 }}>
           <Text style={{ color: colors.text, fontSize: 19, fontWeight: "800" }}>Generate from saved intelligence</Text>
           <Text style={{ color: colors.muted, marginTop: 6, lineHeight: 20 }}>
@@ -156,7 +158,7 @@ export default function CreativeStudioScreen() {
             <Text style={{ color: colors.muted, marginTop: 6 }}>Upar se Full Pack generate karo. Result project ke saath save rahega.</Text>
           </View> : null}
         </View>
-      </ScrollView>
-    </View>
+      </ResponsiveContent>
+    </ResponsiveScreen>
   );
 }
