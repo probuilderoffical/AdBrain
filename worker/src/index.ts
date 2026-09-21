@@ -74,7 +74,10 @@ export default {
         await healthSql`SELECT 1 AS ok`;
         if (!env.AI) throw new Error("AI_BINDING_MISSING");
         const probe = await env.AI.run(env.ADBRAIN_MODEL, {
-          prompt: "Return exactly OK.\n\nUSER: health check\nASSISTANT:",
+          messages: [
+            { role: "system", content: "Return exactly OK." },
+            { role: "user", content: "health check" }
+          ],
           max_tokens: 8,
           temperature: 0,
         });
@@ -120,15 +123,13 @@ export default {
       });
 
       const aiResult = await env.AI.run(env.ADBRAIN_MODEL, {
-        prompt: [
-          ADBRAIN_SYSTEM_PROMPT,
-          "",
-          prompt,
-          "",
-          "ASSISTANT:"
-        ].join("\n"),
-        max_tokens: 900,
+        messages: [
+          { role: "system", content: ADBRAIN_SYSTEM_PROMPT },
+          { role: "user", content: prompt }
+        ],
+        max_tokens: 600,
         temperature: 0.55,
+        repetition_penalty: 1.05,
       });
       const answer = extractResponseText(aiResult);
       if (!answer) throw new Error("EMPTY_MODEL_RESPONSE");
@@ -141,6 +142,12 @@ export default {
       const message = error instanceof Error ? error.message : String(error);
       if (message === "UNAUTHORIZED") return makeJson({ error: "Unauthorized" }, 401, origin);
       console.error("AdBrain worker error", error);
+      if (message.includes("4006") || message.toLowerCase().includes("free allocation")) {
+        return makeJson({
+          error: "AI_DAILY_QUOTA_EXHAUSTED",
+          detail: "Cloudflare Workers AI free daily quota is exhausted. It resets at 00:00 UTC."
+        }, 429, origin);
+      }
       return makeJson({ error: "AdBrain backend error", detail: message }, 500, origin);
     }
   },
