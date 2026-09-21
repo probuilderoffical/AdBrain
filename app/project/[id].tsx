@@ -9,6 +9,7 @@ import { ResponsiveContent, ResponsiveScreen, useResponsiveLayout } from "@/ui/R
 const SOURCE_OPTIONS: Array<{ key: ProjectSource["source_type"]; label: string }> = [
   { key: "product_info", label: "Product URL / Info" },
   { key: "review_text", label: "Customer Reviews" },
+  { key: "review_csv", label: "Review CSV" },
   { key: "competitor", label: "Competitor URL / Info" },
   { key: "notes", label: "Research Notes" }
 ];
