@@ -203,7 +203,6 @@ async function importPublicPage(rawUrl: string) {
     title ? "PAGE TITLE: " + title : "",
     metaDescription ? "META DESCRIPTION: " + cleanHtmlText(metaDescription) : "",
     shopifyProductJson ? "SHOPIFY PRODUCT DATA:\n" + shopifyProductJson : "",
-    jsonLd ? "STRUCTURED DATA:\n" + jsonLd.slice(0, 18000) : "",
     visible ? "PAGE TEXT:\n" + visible : ""
   ].filter(Boolean).join("\n\n").slice(0, 80000);
 
