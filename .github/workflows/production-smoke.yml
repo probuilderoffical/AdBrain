@@ -2,6 +2,10 @@ name: Smoke Test Production
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "worker/wrangler.jsonc"
 
 jobs:
   smoke:
@@ -18,11 +22,12 @@ jobs:
             echo "$BODY"
             if echo "$BODY" | grep -q '"ok":true' && \
                echo "$BODY" | grep -q '"database":"connected"' && \
-               echo "$BODY" | grep -q '"ai":"responding"'; then
-              echo "Production DB + Workers AI smoke test passed."
+               echo "$BODY" | grep -q '"ai":"responding"' && \
+               echo "$BODY" | grep -q '"@cf/qwen/qwen3-30b-a3b-fp8"'; then
+              echo "Qwen3 production DB + AI smoke test passed."
               exit 0
             fi
             sleep 10
           done
-          echo "Production smoke test failed after retries."
+          echo "Production Qwen3 smoke test failed after retries."
           exit 1
