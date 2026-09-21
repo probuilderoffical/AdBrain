@@ -19,6 +19,7 @@ export async function sendAdBrainMessage(payload: ChatPayload) {
       "content-type": "application/json",
       cookie,
     },
+    credentials: "omit",
     body: JSON.stringify(payload),
   });
 
