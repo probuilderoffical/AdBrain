@@ -1,57 +1,127 @@
-import { useState } from "react";
-import { Pressable, Text, TextInput, View } from "react-native";
-import { router } from "expo-router";
-import { authClient } from "@/auth/client";
-import { useTheme } from "@/theme/ThemeProvider";
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
+import { router } from 'expo-router';
+import { authClient } from '@/auth/client';
+import { useTheme } from '@/theme/ThemeProvider';
 
 export default function AuthScreen() {
   const { colors } = useTheme();
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const { data: session, isPending } = authClient.useSession();
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!isPending && session?.user) router.replace('/chat');
+  }, [isPending, session?.user]);
 
   async function submit() {
-    setError("");
+    if (!email.trim() || !password) {
+      setError('Email aur password required hain.');
+      return;
+    }
+    if (mode === 'signup' && !name.trim()) {
+      setError('Naam required hai.');
+      return;
+    }
+
     setBusy(true);
+    setError('');
     try {
-      if (mode === "signup") {
-        const result = await authClient.signUp.email({ name: name.trim() || "AdBrain User", email: email.trim(), password });
-        if (result.error) throw new Error(result.error.message || "Sign up failed");
-      } else {
-        const result = await authClient.signIn.email({ email: email.trim(), password });
-        if (result.error) throw new Error(result.error.message || "Sign in failed");
+      const result = mode === 'signup'
+        ? await authClient.signUp.email({
+            name: name.trim(),
+            email: email.trim().toLowerCase(),
+            password,
+          })
+        : await authClient.signIn.email({
+            email: email.trim().toLowerCase(),
+            password,
+            rememberMe: true,
+          });
+
+      if (result.error) {
+        setError(result.error.message || 'Authentication failed.');
+        return;
       }
-      router.replace("/chat");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Authentication failed");
+      router.replace('/chat');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Authentication failed.');
     } finally {
       setBusy(false);
     }
   }
 
+  if (isPending) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator />
+      </View>
+    );
+  }
+
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background, paddingHorizontal: 24, justifyContent: "center" }}>
-      <Text style={{ color: colors.text, fontSize: 34, fontWeight: "800" }}>AdBrain</Text>
-      <Text style={{ color: colors.muted, marginTop: 8, fontSize: 16 }}>Sign in to AdBrain One</Text>
+    <View style={{ flex: 1, backgroundColor: colors.background, paddingHorizontal: 24, paddingTop: 80 }}>
+      <Text style={{ color: colors.text, fontSize: 34, fontWeight: '800' }}>AdBrain</Text>
+      <Text style={{ color: colors.muted, fontSize: 16, marginTop: 8 }}>
+        {mode === 'signin' ? 'Sign in to AdBrain One' : 'Create your AdBrain account'}
+      </Text>
 
-      {mode === "signup" ? (
-        <TextInput value={name} onChangeText={setName} placeholder="Name" placeholderTextColor={colors.muted} style={{ marginTop: 28, borderWidth: 1, borderColor: colors.border, borderRadius: 14, padding: 14, color: colors.text, backgroundColor: colors.card }} />
-      ) : null}
+      <View style={{ gap: 12, marginTop: 34 }}>
+        {mode === 'signup' ? (
+          <TextInput
+            value={name}
+            onChangeText={setName}
+            placeholder="Name"
+            placeholderTextColor={colors.muted}
+            style={{ backgroundColor: colors.card, color: colors.text, borderWidth: 1, borderColor: colors.border, borderRadius: 14, paddingHorizontal: 15, paddingVertical: 14, fontSize: 16 }}
+          />
+        ) : null}
 
-      <TextInput autoCapitalize="none" keyboardType="email-address" value={email} onChangeText={setEmail} placeholder="Email" placeholderTextColor={colors.muted} style={{ marginTop: mode === "signup" ? 12 : 28, borderWidth: 1, borderColor: colors.border, borderRadius: 14, padding: 14, color: colors.text, backgroundColor: colors.card }} />
-      <TextInput secureTextEntry value={password} onChangeText={setPassword} placeholder="Password" placeholderTextColor={colors.muted} style={{ marginTop: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 14, padding: 14, color: colors.text, backgroundColor: colors.card }} />
+        <TextInput
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          keyboardType="email-address"
+          placeholder="Email"
+          placeholderTextColor={colors.muted}
+          style={{ backgroundColor: colors.card, color: colors.text, borderWidth: 1, borderColor: colors.border, borderRadius: 14, paddingHorizontal: 15, paddingVertical: 14, fontSize: 16 }}
+        />
 
-      {error ? <Text style={{ color: "#B42318", marginTop: 12 }}>{error}</Text> : null}
+        <TextInput
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
+          placeholder="Password (8+ characters)"
+          placeholderTextColor={colors.muted}
+          style={{ backgroundColor: colors.card, color: colors.text, borderWidth: 1, borderColor: colors.border, borderRadius: 14, paddingHorizontal: 15, paddingVertical: 14, fontSize: 16 }}
+        />
 
-      <Pressable disabled={busy} onPress={() => void submit()} style={{ marginTop: 18, backgroundColor: colors.primary, paddingVertical: 14, borderRadius: 14, alignItems: "center", opacity: busy ? 0.5 : 1 }}>
-        <Text style={{ color: colors.background, fontWeight: "700", fontSize: 16 }}>{busy ? "Please wait..." : mode === "signup" ? "Create account" : "Sign in"}</Text>
-      </Pressable>
+        {error ? <Text style={{ color: '#B42318', lineHeight: 20 }}>{error}</Text> : null}
 
-      <Pressable onPress={() => setMode(mode === "signin" ? "signup" : "signin")} style={{ marginTop: 18, alignItems: "center" }}>
-        <Text style={{ color: colors.muted }}>{mode === "signin" ? "New here? Create account" : "Already have an account? Sign in"}</Text>
+        <Pressable
+          disabled={busy}
+          onPress={() => void submit()}
+          style={{ backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 15, alignItems: 'center', opacity: busy ? 0.6 : 1 }}
+        >
+          {busy ? <ActivityIndicator color={colors.background} /> : (
+            <Text style={{ color: colors.background, fontWeight: '700', fontSize: 16 }}>
+              {mode === 'signin' ? 'Sign in' : 'Create account'}
+            </Text>
+          )}
+        </Pressable>
+      </View>
+
+      <Pressable
+        onPress={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(''); }}
+        style={{ paddingVertical: 18, alignSelf: 'center' }}
+      >
+        <Text style={{ color: colors.text }}>
+          {mode === 'signin' ? "New here? Create account" : 'Already have an account? Sign in'}
+        </Text>
       </Pressable>
     </View>
   );
