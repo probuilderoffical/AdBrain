@@ -25,8 +25,11 @@
     "react-native-screens": "~4.26.0",
     "zustand": "^5.0.8",
     "expo-build-properties": "~57.0.21",
-    "react-native-blob-util": "^0.24.0",
-    "llama.rn": "0.12.9"
+    "better-auth": "^1.7.0",
+    "@better-auth/expo": "^1.7.0",
+    "expo-network": "*",
+    "expo-linking": "*",
+    "expo-web-browser": "*"
   },
   "devDependencies": {
     "@types/react": "~19.2.4",
