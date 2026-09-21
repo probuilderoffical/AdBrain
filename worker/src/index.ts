@@ -268,6 +268,24 @@ async function consumeAiUsage(sql: any, userId: string, kind: "chat" | "analysis
   }
 }
 
+async function addLearningEvent(
+  sql: any,
+  userId: string,
+  eventType: "chat_pair" | "feedback" | "analysis" | "creative",
+  projectId: string | null,
+  metadata: Record<string, unknown> = {}
+) {
+  await sql`INSERT INTO public.adbrain_learning_events
+    (user_id, project_id, event_type, eligible, metadata)
+    VALUES (
+      ${userId}::uuid,
+      ${projectId}::uuid,
+      ${eventType},
+      true,
+      ${JSON.stringify(metadata)}::jsonb
+    )`;
+}
+
 async function projectContext(sql: any, userId: string, projectId: string | null) {
   if (!projectId || !validUuid(projectId)) return "";
   const project = await getOwnedProject(sql, userId, projectId);
