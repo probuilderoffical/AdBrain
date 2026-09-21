@@ -48,13 +48,13 @@ export default function SettingsScreen() {
       </View>
 
       <Section title="AdBrain One">
-        <Text style={{ color: colors.muted, lineHeight: 20 }}>Model mode: Automatic · Local-first</Text>
+        <Text style={{ color: colors.muted, lineHeight: 20 }}>Model mode: Cloud · Workers AI</Text>
       </Section>
 
       <Section title="Personalization">
         <ToggleRow label="Memory" value={memory} onValueChange={(value) => setBool('memory', value)} note="Preferences, brands aur project context yaad rakho." />
-        <ToggleRow label="Improve AdBrain" value={improve} onValueChange={(value) => setBool('improve', value)} note="Likes, dislikes, saves aur edits se is device par ranking improve karo." />
-        <ToggleRow label="Chat History" value={chatHistory} onValueChange={(value) => setBool('chatHistory', value)} note="Chats ko local device par save karo." />
+        <ToggleRow label="Improve AdBrain" value={improve} onValueChange={(value) => setBool('improve', value)} note="Likes, dislikes, saves aur edits se AdBrain ranking improve karo." />
+        <ToggleRow label="Chat History" value={chatHistory} onValueChange={(value) => setBool('chatHistory', value)} note="Chat history ko account ke saath save karo." />
       </Section>
 
       <Section title="Appearance">
@@ -84,10 +84,10 @@ export default function SettingsScreen() {
 
       <Section title="Data & Privacy">
         <View style={{ gap: 8 }}>
-          <Text style={{ color: colors.text }}>Processed on device</Text>
+          <Text style={{ color: colors.text }}>Cloud processing</Text>
           <Text style={{ color: colors.text }}>Export data</Text>
-          <Text style={{ color: colors.text }}>Clear local data</Text>
-          <Text style={{ color: colors.text }}>Model storage</Text>
+          <Text style={{ color: colors.text }}>Clear app data</Text>
+          <Text style={{ color: colors.text }}>Account & model status</Text>
         </View>
       </Section>
 
@@ -100,7 +100,7 @@ export default function SettingsScreen() {
 
       <Section title="About">
         <View style={{ gap: 6 }}>
-          <Text style={{ color: colors.muted }}>AdBrain v0.1</Text>
+          <Text style={{ color: colors.muted }}>AdBrain v0.2</Text>
           <Text style={{ color: colors.muted }}>AdBrain One · AB-1</Text>
         </View>
       </Section>
