@@ -2,11 +2,6 @@ name: Smoke Test Production
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "worker/**"
-      - ".github/workflows/production-smoke.yml"
 
 jobs:
   smoke:
