@@ -2,7 +2,7 @@
   "expo": {
     "name": "AdBrain",
     "slug": "adbrain",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "orientation": "portrait",
     "scheme": "adbrain",
     "userInterfaceStyle": "light",
@@ -20,7 +20,8 @@
       ]
     ],
     "android": {
-      "package": "com.probuilderoffical.adbrain"
+      "package": "com.probuilderoffical.adbrain",
+      "versionCode": 2
     },
     "experiments": {
       "typedRoutes": true
