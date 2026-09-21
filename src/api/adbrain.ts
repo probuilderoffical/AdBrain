@@ -41,6 +41,16 @@ export type ProjectSource = {
   created_at?: string;
 };
 
+export type InsightEvidence = {
+  ref: string;
+  kind: "review" | "source";
+  reviewId?: string;
+  sourceId?: string;
+  sourceName?: string | null;
+  sourceType?: string;
+  quote?: string;
+};
+
 export type Insight = {
   id?: string;
   type?: string;
@@ -48,7 +58,30 @@ export type Insight = {
   label: string;
   detail?: string | null;
   score: number;
-  evidence?: string[];
+  evidence?: InsightEvidence[];
+  mention_count?: number;
+  mentionCount?: number;
+};
+
+export type ScorecardMetric = {
+  key: string;
+  label: string;
+  score: number;
+  description: string;
+  basis: string;
+};
+
+export type ProjectScorecard = {
+  metrics: ScorecardMetric[];
+  stats: {
+    unique_reviews?: number;
+    sampled_reviews?: number;
+    source_count?: number;
+    competitor_sources?: number;
+    insight_count?: number;
+  };
+  methodology_version: string;
+  updated_at?: string;
 };
 
 export type CloudSettings = {
@@ -97,7 +130,13 @@ export async function createProject(input: {
 }
 
 export async function getProject(projectId: string) {
-  return api<{ project: Project; sources: ProjectSource[]; insights: Insight[] }>("/projects/" + projectId);
+  return api<{
+    project: Project;
+    sources: ProjectSource[];
+    insights: Insight[];
+    scorecard: ProjectScorecard | null;
+    reviewStats: { unique_reviews: number };
+  }>("/projects/" + projectId);
 }
 
 export async function addProjectSource(projectId: string, input: {
@@ -106,15 +145,23 @@ export async function addProjectSource(projectId: string, input: {
   content?: string;
   url?: string;
 }) {
-  const data = await api<{ source: ProjectSource }>("/projects/" + projectId + "/sources", {
+  return api<{
+    source: ProjectSource;
+    reviewImport: { parsed: number; inserted: number; duplicates: number } | null;
+  }>("/projects/" + projectId + "/sources", {
     method: "POST",
     body: JSON.stringify(input)
   });
-  return data.source;
 }
 
 export async function analyzeProject(projectId: string) {
-  return api<{ projectId: string; summary: string; insights: Insight[]; model: string }>(
+  return api<{
+    projectId: string;
+    summary: string;
+    insights: Insight[];
+    scorecard: ProjectScorecard;
+    model: string;
+  }>(
     "/projects/" + projectId + "/analyze",
     { method: "POST", body: "{}" }
   );
