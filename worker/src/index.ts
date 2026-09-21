@@ -74,10 +74,7 @@ export default {
         await healthSql`SELECT 1 AS ok`;
         if (!env.AI) throw new Error("AI_BINDING_MISSING");
         const probe = await env.AI.run(env.ADBRAIN_MODEL, {
-          messages: [
-            { role: "system", content: "Return exactly OK." },
-            { role: "user", content: "health check" }
-          ],
+          prompt: "Return exactly OK.\n\nUSER: health check\nASSISTANT:",
           max_tokens: 8,
           temperature: 0,
         });
@@ -123,10 +120,13 @@ export default {
       });
 
       const aiResult = await env.AI.run(env.ADBRAIN_MODEL, {
-        messages: [
-          { role: "system", content: ADBRAIN_SYSTEM_PROMPT },
-          { role: "user", content: prompt },
-        ],
+        prompt: [
+          ADBRAIN_SYSTEM_PROMPT,
+          "",
+          prompt,
+          "",
+          "ASSISTANT:"
+        ].join("\n"),
         max_tokens: 900,
         temperature: 0.55,
       });
