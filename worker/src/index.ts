@@ -422,29 +422,52 @@ async function projectContext(sql: any, userId: string, projectId: string | null
   if (!projectId || !validUuid(projectId)) return "";
   const project = await getOwnedProject(sql, userId, projectId);
   if (!project) return "";
-  const [sources, insights] = await Promise.all([
+
+  const [sources, insights, scorecards] = await Promise.all([
     sql`SELECT source_type, name, content FROM public.adbrain_sources
       WHERE project_id = ${projectId}::uuid AND user_id = ${userId}::uuid
       ORDER BY created_at DESC LIMIT 6`,
-    sql`SELECT insight_type, label, detail, score FROM public.adbrain_insights
+    sql`SELECT insight_type, label, detail, score, mention_count, evidence
+      FROM public.adbrain_insights
       WHERE project_id = ${projectId}::uuid AND user_id = ${userId}::uuid
-      ORDER BY score DESC, created_at DESC LIMIT 18`
+      ORDER BY score DESC, mention_count DESC, created_at DESC LIMIT 18`,
+    sql`SELECT metrics, stats FROM public.adbrain_scorecards
+      WHERE project_id = ${projectId}::uuid AND user_id = ${userId}::uuid
+      LIMIT 1`
   ]);
-  const sourceSummary = sources.map((s: any) =>
-    "- [" + s.source_type + "] " + (s.name || "source") + ": " + String(s.content).slice(0, 900)
+
+  const sourceSummary = sources.map((row: any) =>
+    "- [" + row.source_type + "] " + (row.name || "source") + ": " + String(row.content).slice(0, 700)
   ).join("\n");
-  const insightSummary = insights.map((i: any) =>
-    "- " + i.insight_type + " (" + Math.round(Number(i.score || 0)) + "): " + i.label + (i.detail ? " — " + i.detail : "")
-  ).join("\n");
+
+  const insightSummary = insights.map((row: any) => {
+    const evidence = Array.isArray(row.evidence) ? row.evidence : [];
+    const refs = evidence.slice(0, 4).map((e: any) => e.ref).filter(Boolean).join(", ");
+    return "- " + row.insight_type +
+      " (" + Math.round(Number(row.score || 0)) + ")" +
+      (Number(row.mention_count || 0) ? " [" + row.mention_count + " review mentions]" : "") +
+      ": " + row.label +
+      (row.detail ? " — " + row.detail : "") +
+      (refs ? " {evidence " + refs + "}" : "");
+  }).join("\n");
+
+  const scorecard = scorecards[0];
+  const scorecardSummary = scorecard && Array.isArray(scorecard.metrics)
+    ? scorecard.metrics.map((metric: any) =>
+        "- " + metric.label + ": " + Math.round(Number(metric.score || 0)) + "/100 — " + metric.basis
+      ).join("\n")
+    : "";
+
   return [
     "Project: " + project.name,
     project.brand_name ? "Brand: " + project.brand_name : "",
     project.product_name ? "Product: " + project.product_name : "",
     project.product_description ? "Product description: " + project.product_description : "",
     project.target_audience ? "Target audience: " + project.target_audience : "",
-    sourceSummary ? "Recent source evidence:\n" + sourceSummary : "",
-    insightSummary ? "Saved structured insights:\n" + insightSummary : ""
-  ].filter(Boolean).join("\n");
+    scorecardSummary ? "RESEARCH SCORECARD (descriptive evidence metrics, not performance prediction):\n" + scorecardSummary : "",
+    sourceSummary ? "RECENT SOURCE EVIDENCE:\n" + sourceSummary : "",
+    insightSummary ? "VERIFIED STRUCTURED INSIGHTS:\n" + insightSummary : ""
+  ].filter(Boolean).join("\n\n");
 }
 
 function normalizeInsight(raw: any) {
