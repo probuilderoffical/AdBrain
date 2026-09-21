@@ -156,7 +156,7 @@ async function importPublicPage(rawUrl: string) {
     html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']*)["'][^>]*>/i)?.[1] ||
     html.match(/<meta[^>]+content=["']([^"']*)["'][^>]+name=["']description["'][^>]*>/i)?.[1] ||
     "";
-  const jsonLd = [...html.matchAll(/<script[^>]+type=["']application\\/ld\\+json["'][^>]*>([\\s\\S]*?)<\\/script>/gi)]
+  const jsonLd = [...html.matchAll(/<script[^>]+type=["\']application\\/ld\\+json["\'][^>]*>([\\s\\S]*?)<\\/script>/gi)]
     .slice(0, 8)
     .map((match) => match[1].trim())
     .join("\\n");
