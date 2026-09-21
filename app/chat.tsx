@@ -3,7 +3,6 @@ import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@/theme/ThemeProvider';
-import { analyzeMessage } from '@/brain/analyzeMessage';
 import { addMessage, createChat, getLatestChat, getMessages } from '@/db/chatRepo';
 import { recordFeedback } from '@/db/learningRepo';
 import { usePreferences } from '@/store/preferences';
@@ -72,23 +71,22 @@ export default function ChatScreen() {
     const memoryContext = memoryEnabled ? await getTopMemories() : [];
     const prompt = buildAdBrainPrompt(value, memoryContext);
 
-    let reply: string | null = null;
     try {
-      reply = await model.ask(prompt, (token) => {
+      const reply = await model.ask(prompt, (token) => {
         setStreamingText((current) => current + token);
       });
-    } catch {
-      reply = null;
-    }
 
-    if (!reply) {
-      reply = analyzeMessage(value);
+      const assistantId = await persist('assistant', reply);
+      setMessages((current) => [...current, { id: assistantId, role: 'assistant', text: reply }]);
+    } catch (cause) {
+      const reason = cause instanceof Error ? cause.message : String(cause);
+      const failure = 'AdBrain One could not generate a response. ' + reason;
+      const assistantId = await persist('assistant', failure);
+      setMessages((current) => [...current, { id: assistantId, role: 'assistant', text: failure }]);
+    } finally {
+      setStreamingText('');
+      setIsGenerating(false);
     }
-
-    const assistantId = await persist('assistant', reply);
-    setMessages((current) => [...current, { id: assistantId, role: 'assistant', text: reply as string }]);
-    setStreamingText('');
-    setIsGenerating(false);
   };
 
   async function feedback(signal: 'like' | 'dislike' | 'save' | 'copy', messageId?: number) {
@@ -112,13 +110,27 @@ export default function ChatScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 150 }}>
-        {!model.isReady ? (
-          <View style={{ marginBottom: 12, padding: 10, borderRadius: 12, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }}>
-            <Text style={{ color: colors.muted, fontSize: 12 }}>
-              {model.error ? 'Local AI unavailable — fallback mode active.' : 'Preparing AdBrain One · ' + Math.round(model.downloadProgress) + '%'}
-            </Text>
-          </View>
-        ) : null}
+        <View style={{ marginBottom: 12, padding: 12, borderRadius: 14, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }}>
+          <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>
+            {model.modelName}
+          </Text>
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>
+            {model.status === 'ready'
+              ? 'Ready · running on this device'
+              : model.status === 'downloading'
+                ? 'Downloading model · ' + model.downloadProgress + '% · ' + model.modelSize
+                : model.status === 'loading'
+                  ? 'Loading model into memory...'
+                  : model.status === 'checking'
+                    ? 'Checking local model...'
+                    : 'Model error: ' + (model.error ?? 'Unknown error')}
+          </Text>
+          {model.status === 'error' ? (
+            <Pressable onPress={() => void model.retry()} style={{ marginTop: 10, alignSelf: 'flex-start', borderWidth: 1, borderColor: colors.border, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 }}>
+              <Text style={{ color: colors.text, fontWeight: '600' }}>Retry model</Text>
+            </Pressable>
+          ) : null}
+        </View>
         {messages.length === 0 ? (
           <View style={{ marginTop: 76 }}>
             <Text style={{ fontSize: 30, fontWeight: '700', color: colors.text, lineHeight: 38 }}>
@@ -186,7 +198,7 @@ export default function ChatScreen() {
           multiline
           style={{ flex: 1, maxHeight: 120, color: colors.text, fontSize: 16, paddingVertical: 9 }}
         />
-        <Pressable disabled={isGenerating} onPress={() => void send()} style={{ opacity: isGenerating ? 0.5 : 1, backgroundColor: colors.primary, width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }}>
+        <Pressable disabled={isGenerating || !model.isReady} onPress={() => void send()} style={{ opacity: isGenerating || !model.isReady ? 0.35 : 1, backgroundColor: colors.primary, width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }}>
           <Ionicons name="arrow-up" size={20} color={colors.background} />
         </Pressable>
       </View>
