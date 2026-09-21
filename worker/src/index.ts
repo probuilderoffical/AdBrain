@@ -522,6 +522,13 @@ export default {
             response_style = EXCLUDED.response_style,
             updated_at = now()
           RETURNING preferred_language, memory_enabled, improve_adbrain, chat_history_enabled, response_style`;
+
+        if (current.improve_adbrain && !improveAdbrain) {
+          await sql`UPDATE public.adbrain_learning_events
+            SET eligible = false, revoked_at = now()
+            WHERE user_id = ${userId}::uuid AND eligible = true`;
+        }
+
         return makeJson({ settings: rows[0] }, 200, origin);
       }
 
