@@ -151,24 +151,45 @@ async function importPublicPage(rawUrl: string) {
   }
 
   const html = (await res.text()).slice(0, 1_500_000);
-  const title = cleanHtmlText(html.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i)?.[1] || "").slice(0, 240);
-  const metaDescription =
-    html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']*)["'][^>]*>/i)?.[1] ||
-    html.match(/<meta[^>]+content=["']([^"']*)["'][^>]+name=["']description["'][^>]*>/i)?.[1] ||
-    "";
-  const jsonLd = [...html.matchAll(/<script[^>]+type=["\']application\\/ld\\+json["\'][^>]*>([\\s\\S]*?)<\\/script>/gi)]
-    .slice(0, 8)
-    .map((match) => match[1].trim())
-    .join("\\n");
+  const lower = html.toLowerCase();
+  let title = "";
+  const titleStart = lower.indexOf("<title");
+  if (titleStart >= 0) {
+    const titleOpenEnd = html.indexOf(">", titleStart);
+    const titleClose = lower.indexOf("</title>", titleOpenEnd + 1);
+    if (titleOpenEnd >= 0 && titleClose > titleOpenEnd) {
+      title = cleanHtmlText(html.slice(titleOpenEnd + 1, titleClose)).slice(0, 240);
+    }
+  }
 
-  const isShopify = /cdn\\.shopify\\.com|Shopify\\.theme|shopify-section|ShopifyAnalytics/i.test(html);
+  const metaDescription = "";
+  const jsonLd = "";
+  const isShopify =
+    html.includes("cdn.shopify.com") ||
+    html.includes("Shopify.theme") ||
+    html.includes("shopify-section") ||
+    html.includes("ShopifyAnalytics");
+
   let shopifyProductJson = "";
-  const productMatch = url.pathname.match(/\\/products\\/([^/?#]+)/i);
-  if (isShopify && productMatch?.[1]) {
+  const productMarker = "/products/";
+  const markerIndex = url.pathname.toLowerCase().indexOf(productMarker);
+  let productHandle = "";
+  if (markerIndex >= 0) {
+    productHandle = url.pathname
+      .slice(markerIndex + productMarker.length)
+      .split("/")[0]
+      .split("?")[0]
+      .split("#")[0];
+  }
+
+  if (isShopify && productHandle) {
     try {
-      const productJsonUrl = new URL("/products/" + productMatch[1] + ".js", url.origin);
+      const productJsonUrl = new URL("/products/" + productHandle + ".js", url.origin);
       const productRes = await fetch(productJsonUrl.toString(), {
-        headers: { "user-agent": "Mozilla/5.0 (compatible; AdBrainResearch/1.0)", accept: "application/json" }
+        headers: {
+          "user-agent": "Mozilla/5.0 (compatible; AdBrainResearch/1.0)",
+          accept: "application/json"
+        }
       });
       if (productRes.ok) shopifyProductJson = (await productRes.text()).slice(0, 30000);
     } catch {
@@ -181,13 +202,18 @@ async function importPublicPage(rawUrl: string) {
     isShopify ? "PLATFORM: Shopify" : "PLATFORM: Ecommerce/Public Web",
     title ? "PAGE TITLE: " + title : "",
     metaDescription ? "META DESCRIPTION: " + cleanHtmlText(metaDescription) : "",
-    shopifyProductJson ? "SHOPIFY PRODUCT DATA:\\n" + shopifyProductJson : "",
-    jsonLd ? "STRUCTURED DATA:\\n" + jsonLd.slice(0, 18000) : "",
-    visible ? "PAGE TEXT:\\n" + visible : ""
-  ].filter(Boolean).join("\\n\\n").slice(0, 80000);
+    shopifyProductJson ? "SHOPIFY PRODUCT DATA:\n" + shopifyProductJson : "",
+    jsonLd ? "STRUCTURED DATA:\n" + jsonLd.slice(0, 18000) : "",
+    visible ? "PAGE TEXT:\n" + visible : ""
+  ].filter(Boolean).join("\n\n").slice(0, 80000);
 
   if (!content) throw new Error("SOURCE_EMPTY");
-  return { finalUrl: res.url || url.toString(), title: title || url.hostname, content, platform: isShopify ? "shopify" : "web" };
+  return {
+    finalUrl: res.url || url.toString(),
+    title: title || url.hostname,
+    content,
+    platform: isShopify ? "shopify" : "web"
+  };
 }
 
 async function getSettings(sql: any, userId: string) {
