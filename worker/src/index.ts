@@ -1,0 +1,181 @@
+import { neon } from "@neondatabase/serverless";
+import { createRemoteJWKSet, jwtVerify } from "jose";
+import { ADBRAIN_SYSTEM_PROMPT, buildContextPrompt } from "./prompts";
+
+interface Env {
+  AI: any;
+  DATABASE_URL: string;
+  NEON_AUTH_JWKS_URL: string;
+  ADBRAIN_MODEL: string;
+  ALLOWED_ORIGIN?: string;
+}
+
+type ChatRequest = {
+  message?: string;
+  conversationId?: string;
+  projectId?: string;
+};
+
+function makeJson(data: unknown, status = 200, origin = "*") {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "access-control-allow-origin": origin,
+      "access-control-allow-headers": "authorization, content-type",
+      "access-control-allow-methods": "GET, POST, OPTIONS",
+    },
+  });
+}
+
+async function getUserId(request: Request, env: Env) {
+  const auth = request.headers.get("authorization");
+  if (!auth || !auth.startsWith("Bearer ")) throw new Error("UNAUTHORIZED");
+  const token = auth.slice(7);
+  const jwks = createRemoteJWKSet(new URL(env.NEON_AUTH_JWKS_URL));
+  const verified = await jwtVerify(token, jwks);
+  if (!verified.payload.sub) throw new Error("UNAUTHORIZED");
+  return verified.payload.sub;
+}
+
+function extractResponseText(raw: any): string {
+  if (typeof raw === "string") return raw.trim();
+  if (!raw || typeof raw !== "object") return "";
+  if (typeof raw.response === "string") return raw.response.trim();
+  if (typeof raw.result === "string") return raw.result.trim();
+  if (raw.result && typeof raw.result.response === "string") return raw.result.response.trim();
+  if (Array.isArray(raw.choices) && typeof raw.choices[0]?.message?.content === "string") {
+    return raw.choices[0].message.content.trim();
+  }
+  return "";
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const origin = env.ALLOWED_ORIGIN || "*";
+
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "access-control-allow-origin": origin,
+          "access-control-allow-headers": "authorization, content-type",
+          "access-control-allow-methods": "GET, POST, OPTIONS",
+        },
+      });
+    }
+
+    const url = new URL(request.url);
+
+    if (request.method === "GET" && url.pathname === "/health") {
+      return makeJson({ ok: true, service: "adbrain-api", model: env.ADBRAIN_MODEL }, 200, origin);
+    }
+
+    if (request.method !== "POST" || url.pathname !== "/chat") {
+      return makeJson({ error: "Not found" }, 404, origin);
+    }
+
+    try {
+      const userId = await getUserId(request, env);
+      const body = await request.json<ChatRequest>();
+      const message = body.message?.trim();
+
+      if (!message) return makeJson({ error: "Message is required" }, 400, origin);
+      if (message.length > 30000) return makeJson({ error: "Message too long" }, 413, origin);
+
+      const sql = neon(env.DATABASE_URL);
+      let conversationId = body.conversationId || null;
+
+      if (conversationId) {
+        const owned = await sql`
+          SELECT id
+          FROM public.adbrain_conversations
+          WHERE id = ${conversationId}::uuid
+            AND user_id = ${userId}::uuid
+          LIMIT 1
+        `;
+        if (!owned.length) return makeJson({ error: "Conversation not found" }, 404, origin);
+      } else {
+        const projectId = body.projectId || null;
+        const created = await sql`
+          INSERT INTO public.adbrain_conversations (user_id, project_id, title)
+          VALUES (${userId}::uuid, ${projectId}::uuid, ${message.slice(0, 72)})
+          RETURNING id
+        `;
+        conversationId = String(created[0].id);
+      }
+
+      const recent = await sql`
+        SELECT role, content
+        FROM public.adbrain_messages
+        WHERE conversation_id = ${conversationId}::uuid
+          AND user_id = ${userId}::uuid
+        ORDER BY created_at DESC
+        LIMIT 10
+      `;
+
+      const projectIdForMemory = body.projectId || null;
+      const memories = await sql`
+        SELECT kind, content, importance
+        FROM public.adbrain_memories
+        WHERE user_id = ${userId}::uuid
+          AND active = true
+          AND (${projectIdForMemory}::uuid IS NULL OR project_id = ${projectIdForMemory}::uuid OR project_id IS NULL)
+        ORDER BY importance DESC, updated_at DESC
+        LIMIT 12
+      `;
+
+      await sql`
+        INSERT INTO public.adbrain_messages
+          (conversation_id, user_id, role, content, model)
+        VALUES
+          (${conversationId}::uuid, ${userId}::uuid, 'user', ${message}, ${env.ADBRAIN_MODEL})
+      `;
+
+      const prompt = buildContextPrompt({
+        userText: message,
+        recentMessages: [...recent].reverse() as Array<{ role: string; content: string }>,
+        memories: memories as Array<{ kind: string; content: string; importance: number }>,
+      });
+
+      const aiResult = await env.AI.run(env.ADBRAIN_MODEL, {
+        messages: [
+          { role: "system", content: ADBRAIN_SYSTEM_PROMPT },
+          { role: "user", content: prompt },
+        ],
+        max_tokens: 900,
+        temperature: 0.55,
+      });
+
+      const answer = extractResponseText(aiResult);
+      if (!answer) throw new Error("EMPTY_MODEL_RESPONSE");
+
+      const saved = await sql`
+        INSERT INTO public.adbrain_messages
+          (conversation_id, user_id, role, content, model)
+        VALUES
+          (${conversationId}::uuid, ${userId}::uuid, 'assistant', ${answer}, ${env.ADBRAIN_MODEL})
+        RETURNING id, created_at
+      `;
+
+      await sql`
+        UPDATE public.adbrain_conversations
+        SET updated_at = now()
+        WHERE id = ${conversationId}::uuid
+      `;
+
+      return makeJson({
+        conversationId,
+        messageId: saved[0].id,
+        answer,
+        model: env.ADBRAIN_MODEL,
+        createdAt: saved[0].created_at,
+      }, 200, origin);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message === "UNAUTHORIZED") return makeJson({ error: "Unauthorized" }, 401, origin);
+      console.error("AdBrain worker error", error);
+      return makeJson({ error: "AdBrain backend error", detail: message }, 500, origin);
+    }
+  },
+};
