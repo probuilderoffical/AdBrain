@@ -375,6 +375,13 @@ async function runProductAnalysis(env: Env, sql: any, userId: string, projectId:
   }
 
   const summary = String(parsed?.summary || "").trim().slice(0, 5000);
+  const analysisSettings = await getSettings(sql, userId);
+  if (analysisSettings.improve_adbrain) {
+    await addLearningEvent(sql, userId, "analysis", projectId, {
+      model: env.ADBRAIN_MODEL,
+      insightCount: insights.length
+    });
+  }
   if (summary) {
     await sql`DELETE FROM public.adbrain_memories
       WHERE user_id = ${userId}::uuid AND project_id = ${projectId}::uuid AND kind = 'project_summary'`;
@@ -418,6 +425,15 @@ async function runCreativeStudio(env: Env, sql: any, userId: string, projectId: 
     (user_id, project_id, artifact_type, title, content)
     VALUES (${userId}::uuid, ${projectId}::uuid, 'creative_pack', ${title}, ${JSON.stringify(content)}::jsonb)
     RETURNING id, project_id, artifact_type, title, content, status, created_at, updated_at`;
+
+  const creativeSettings = await getSettings(sql, userId);
+  if (creativeSettings.improve_adbrain) {
+    await addLearningEvent(sql, userId, "creative", projectId, {
+      model: env.ADBRAIN_MODEL,
+      artifactId: rows[0].id,
+      mode
+    });
+  }
   return rows[0];
 }
 
@@ -679,6 +695,12 @@ export default {
             score = public.adbrain_preferences.score + EXCLUDED.score,
             samples = public.adbrain_preferences.samples + 1,
             updated_at = now()`;
+
+        await addLearningEvent(sql, userId, "feedback", null, {
+          messageId: body.messageId,
+          signal,
+          value: weights[signal]
+        });
         return makeJson({ ok: true }, 200, origin);
       }
 
@@ -756,6 +778,14 @@ export default {
           messageId = String(saved[0].id);
           createdAt = String(saved[0].created_at);
           await sql`UPDATE public.adbrain_conversations SET updated_at = now() WHERE id = ${conversationId}::uuid`;
+
+          if (settings.improve_adbrain) {
+            await addLearningEvent(sql, userId, "chat_pair", projectId, {
+              conversationId,
+              messageId,
+              model: env.ADBRAIN_MODEL
+            });
+          }
         }
 
         return makeJson({ conversationId, messageId, answer, model: env.ADBRAIN_MODEL, createdAt, projectId }, 200, origin);
