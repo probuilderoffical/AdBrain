@@ -56,7 +56,17 @@ export default {
     }});
 
     const url = new URL(request.url);
-    if (request.method === "GET" && url.pathname === "/health") return makeJson({ ok: true, service: "adbrain-api", model: env.ADBRAIN_MODEL }, 200, origin);
+    if (request.method === "GET" && url.pathname === "/health") {
+      try {
+        if (!env.DATABASE_URL) throw new Error("DATABASE_URL_MISSING");
+        const healthSql = neon(env.DATABASE_URL);
+        await healthSql`SELECT 1 AS ok`;
+        return makeJson({ ok: true, service: "adbrain-api", database: "connected", aiBinding: !!env.AI, model: env.ADBRAIN_MODEL }, 200, origin);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        return makeJson({ ok: false, service: "adbrain-api", database: "error", aiBinding: !!env.AI, model: env.ADBRAIN_MODEL, detail }, 500, origin);
+      }
+    }
     if (request.method !== "POST" || url.pathname !== "/chat") return makeJson({ error: "Not found" }, 404, origin);
 
     try {
