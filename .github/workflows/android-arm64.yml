@@ -1,0 +1,35 @@
+name: Build Android ARM64 Test APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/android-arm64.yml"
+
+jobs:
+  build-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NODE_ENV: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install
+      - name: Expo prebuild
+        run: npx expo prebuild --platform android --non-interactive
+      - name: Make Gradle executable
+        run: chmod +x android/gradlew
+      - name: Build ARM64 release APK
+        working-directory: android
+        run: ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a
+      - name: Upload ARM64 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AdBrain-arm64-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
