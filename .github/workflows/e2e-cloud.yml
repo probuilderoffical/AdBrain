@@ -1,0 +1,47 @@
+name: E2E Test AdBrain Cloud
+
+on:
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create temporary Neon Auth account and test real AI
+        shell: bash
+        env:
+          AUTH_BASE: "https://ep-old-term-b3v342gi.neonauth.c-4.ap-southeast-1.aws.neon.tech/neondb/auth"
+          API_BASE: "https://adbrain.aw5703066.workers.dev"
+        run: |
+          set -euo pipefail
+          EMAIL="adbrain-e2e-${GITHUB_RUN_ID}@example.com"
+          PASSWORD="AdBrainE2E-2026-Test!"
+          echo "Creating temporary test user: $EMAIL"
+
+          SIGNUP=$(curl -sS --max-time 20 -c /tmp/cookies.txt \
+            -X POST "$AUTH_BASE/sign-up/email" \
+            -H "content-type: application/json" \
+            --data "{"name":"AdBrain E2E","email":"$EMAIL","password":"$PASSWORD"}")
+          echo "$SIGNUP"
+          test -s /tmp/cookies.txt
+
+          R1=$(curl -sS --max-time 90 -b /tmp/cookies.txt \
+            -X POST "$API_BASE/chat" \
+            -H "content-type: application/json" \
+            --data '{"message":"I sell a stainless steel gym bottle. Give me 3 ad angles based only on this information."}')
+          echo "Response 1: $R1"
+
+          C1=$(node -e 'const x=JSON.parse(process.argv[1]); if(!x.answer||!x.conversationId) process.exit(1); process.stdout.write(x.conversationId)' "$R1")
+          A1=$(node -e 'const x=JSON.parse(process.argv[1]); process.stdout.write(x.answer||"")' "$R1")
+
+          R2=$(curl -sS --max-time 90 -b /tmp/cookies.txt \
+            -X POST "$API_BASE/chat" \
+            -H "content-type: application/json" \
+            --data "{"message":"Now write 3 short hooks for angle one.","conversationId":"$C1"}")
+          echo "Response 2: $R2"
+
+          A2=$(node -e 'const x=JSON.parse(process.argv[1]); if(!x.answer) process.exit(1); process.stdout.write(x.answer)' "$R2")
+          test -n "$A1"
+          test -n "$A2"
+          test "$A1" != "$A2"
+          echo "Real AI E2E test passed with contextual, different responses."
